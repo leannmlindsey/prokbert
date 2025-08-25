@@ -153,10 +153,12 @@ def main(prokbert_config):
     test_set = dataset["test"]
 
     # Convert to pandas dataframes with the expected column structure
-    print("Preparing dataframes with required column structure...")
-    train_db = prepare_lambda_dataframe(train_set)
-    val_db = prepare_lambda_dataframe(validation_set)
-    test_db = prepare_lambda_dataframe(test_set)
+    # ProkBERT-mini has max position embeddings of 1024
+    max_seq_length = 1024
+    print(f"Preparing dataframes with required column structure (max length: {max_seq_length})...")
+    train_db = prepare_lambda_dataframe(train_set, max_length=max_seq_length)
+    val_db = prepare_lambda_dataframe(validation_set, max_length=max_seq_length)
+    test_db = prepare_lambda_dataframe(test_set, max_length=max_seq_length)
 
     # Display dataset info
     print(f"Train set size: {len(train_db)}")
