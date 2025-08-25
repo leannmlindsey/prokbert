@@ -118,6 +118,11 @@ def main(prokbert_config):
     train_db = train_set.to_pandas()
     test_sigma70_db = test_sigma70_set.to_pandas()
     test_ms_db = multispecies_set.to_pandas()
+    
+    # Rename 'class_label' to 'label' for compatibility with get_torch_data_from_segmentdb_classification
+    train_db['label'] = train_db['class_label']
+    test_sigma70_db['label'] = test_sigma70_db['class_label']
+    test_ms_db['label'] = test_ms_db['class_label']
 
 
     ## Creating datasets!

@@ -60,13 +60,13 @@ def prepare_input_arguments():
     # Initialization of the input parameterset
     parameters = {k: {} for k in parameter_group_names}
     for provided_input_argument in input_args2check:
-        print(f'Setting: {provided_input_argument}')
+        #print(f'Setting: {provided_input_argument}')
         param_group, param_name = cmd_argument2group_param[provided_input_argument]
-        print(f'It belongs to group: {param_group}. Maps to the parameter: {param_name}')
+        #print(f'It belongs to group: {param_group}. Maps to the parameter: {param_name}')
         act_value = getattr(args, provided_input_argument)
         parameters[param_group][param_name]=act_value
     
-    print(parameters.keys())
+    #print(parameters.keys())
     
         
     _ = prokbert_config.get_and_set_model_parameters(parameters['model'])
@@ -100,6 +100,9 @@ def prepare_lambda_dataframe(dataset_split):
     
     # Create 'y' column (same as label for binary classification)
     df['y'] = df['label']
+    
+    # Keep 'label' column as it's expected by get_torch_data_from_segmentdb_classification
+    # The 'label' column is already present in the lambda dataset
     
     return df
 
