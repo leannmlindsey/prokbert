@@ -83,14 +83,21 @@ def prepare_input_arguments():
 
     return prokbert_config
 
-def prepare_lambda_dataframe(dataset_split):
+def prepare_lambda_dataframe(dataset_split, max_length=2048):
     """
     Convert lambda dataset split to the format expected by ProkBERT.
     
     The lambda dataset has columns: 'sequence' and 'label'
     ProkBERT expects: 'segment', 'segment_id', 'y', and 'label'
+    
+    Args:
+        dataset_split: HuggingFace dataset split
+        max_length: Maximum sequence length (default 2048 to stay under ProkBERT's 2050 limit)
     """
     df = dataset_split.to_pandas()
+    
+    # Truncate sequences that are too long
+    df['sequence'] = df['sequence'].apply(lambda x: x[:max_length] if len(x) > max_length else x)
     
     # Rename 'sequence' to 'segment'
     df['segment'] = df['sequence']
@@ -103,6 +110,12 @@ def prepare_lambda_dataframe(dataset_split):
     
     # Keep 'label' column as it's expected by get_torch_data_from_segmentdb_classification
     # The 'label' column is already present in the lambda dataset
+    
+    # Print truncation statistics
+    original_lengths = dataset_split.to_pandas()['sequence'].apply(len)
+    truncated_count = (original_lengths > max_length).sum()
+    if truncated_count > 0:
+        print(f"Truncated {truncated_count} sequences from max length {original_lengths.max()} to {max_length}")
     
     return df
 
