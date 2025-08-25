@@ -128,6 +128,30 @@ def main(prokbert_config):
     Args:
         prokbert_config (ProkBERTConfig): Configuration object containing all necessary parameters for pretraining.
     """
+    # Debug GPU availability
+    print("="*50)
+    print("GPU/CUDA Debug Information:")
+    print(f"PyTorch CUDA available: {torch.cuda.is_available()}")
+    if torch.cuda.is_available():
+        print(f"CUDA device count: {torch.cuda.device_count()}")
+        print(f"Current CUDA device: {torch.cuda.current_device()}")
+        print(f"CUDA device name: {torch.cuda.get_device_name(0)}")
+        print(f"CUDA capability: {torch.cuda.get_device_capability(0)}")
+        # Check memory
+        print(f"GPU memory allocated: {torch.cuda.memory_allocated(0) / 1024**3:.2f} GB")
+        print(f"GPU memory reserved: {torch.cuda.memory_reserved(0) / 1024**3:.2f} GB")
+        print(f"GPU total memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
+    else:
+        print("CUDA is NOT available - will use CPU")
+        import subprocess
+        result = subprocess.run(['nvidia-smi'], capture_output=True, text=True)
+        if result.returncode == 0:
+            print("\nnvidia-smi output (GPU is visible to system):")
+            print(result.stdout[:500])  # First 500 chars
+        else:
+            print("nvidia-smi command failed - GPU may not be accessible")
+    print("="*50)
+    
     check_nvidia_gpu()
     print(prokbert_config.finetuning_params)
 
