@@ -51,14 +51,14 @@ def prepare_input_arguments():
         ProkBERTConfig: Configuration object for ProkBERT pretraining.
     """
     prokbert_config = ProkBERTConfig()
-    # Include all parameter groups that will be accessed later
-    keyset = ['finetuning', 'model', 'dataset', 'pretraining', 'tokenization', 'segmentation', 'computation', 'data_collator', 'inference']
+    keyset = ['finetuning', 'model', 'dataset', 'pretraining']
     parser, cmd_argument2group_param, group2param2cmdarg = prokbert_config.get_cmd_arg_parser(keyset)    
     args = parser.parse_args()
     user_provided_args = get_user_provided_args(args, parser)
     input_args2check = list(set(user_provided_args.keys()) - {'help'})
-    # Use the keyset to initialize parameters to ensure all groups are present
-    parameters = {k: {} for k in keyset}
+    parameter_group_names = list(prokbert_config.parameters.keys())
+    # Initialization of the input parameterset
+    parameters = {k: {} for k in parameter_group_names}
     for provided_input_argument in input_args2check:
         #print(f'Setting: {provided_input_argument}')
         param_group, param_name = cmd_argument2group_param[provided_input_argument]
