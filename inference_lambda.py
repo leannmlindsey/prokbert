@@ -234,6 +234,9 @@ def save_results(predictions, probabilities, labels, segment_ids, output_path, m
     })
     
     if labels is not None:
+        # Convert to numpy if it's a tensor
+        if torch.is_tensor(labels):
+            labels = labels.cpu().numpy()
         results['true_label'] = labels
         results['correct'] = (predictions == labels).astype(int)
     
