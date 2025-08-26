@@ -342,15 +342,35 @@ def main():
     
     # Prepare data for ProkBERT
     print(f"\n4. Preparing data for inference...")
-    [X_test, y_test, torchdb_test] = get_torch_data_from_segmentdb_classification(tokenizer, test_df)
-    test_ds = ProkBERTTrainingDatasetPT(X_test, y_test, AddAttentionMask=True)
     
-    # Create dataloader
+    # Set randomize=False for inference to ensure consistency
+    [X_test, y_test, torchdb_test] = get_torch_data_from_segmentdb_classification(
+        tokenizer, test_df, L=None, randomize=False
+    )
+    
+    # Debug: Check dimensions and ensure consistency
+    print(f"   X_test shape: {X_test.shape}")
+    print(f"   y_test shape: {y_test.shape}")
+    print(f"   torchdb_test size: {len(torchdb_test)}")
+    
+    # Ensure X and y have the same first dimension
+    if X_test.shape[0] != y_test.shape[0]:
+        print(f"   WARNING: Size mismatch! X_test: {X_test.shape[0]}, y_test: {y_test.shape[0]}")
+        min_size = min(X_test.shape[0], y_test.shape[0])
+        X_test = X_test[:min_size]
+        y_test = y_test[:min_size]
+        print(f"   Truncated to size: {min_size}")
+    
+    test_ds = ProkBERTTrainingDatasetPT(X_test, y_test, AddAttentionMask=True)
+    print(f"   Dataset size: {len(test_ds)}")
+    
+    # Create dataloader with drop_last=True to avoid incomplete batches
     test_dataloader = DataLoader(
         test_ds,
         batch_size=args.batch_size,
         shuffle=False,
-        num_workers=0
+        num_workers=0,
+        drop_last=False  # Keep all samples
     )
     
     # Perform inference
@@ -388,8 +408,21 @@ def main():
         dataset_name = args.dataset.replace('/', '_') if not args.dataset_file else os.path.basename(args.dataset_file).split('.')[0]
         output_path = os.path.join(args.output_dir, f"predictions_{dataset_name}_{checkpoint_name}.csv")
     
-    segment_ids = test_df['segment_id'].values if 'segment_id' in test_df.columns else [f"seq_{i}" for i in range(len(predictions))]
-    save_results(predictions, probabilities, y_test if not args.no_labels else None, segment_ids, output_path, metadata_df)
+    # Use segment_ids from torchdb_test which matches the processed data
+    if 'segment_id' in torchdb_test.columns:
+        segment_ids = torchdb_test['segment_id'].values[:len(predictions)]
+    elif 'segment_id' in test_df.columns:
+        segment_ids = test_df['segment_id'].values[:len(predictions)]
+    else:
+        segment_ids = [f"seq_{i}" for i in range(len(predictions))]
+    
+    # Ensure metadata_df is aligned with the predictions
+    if not metadata_df.empty and 'segment_id' in metadata_df.columns:
+        # Filter metadata to match the processed segments
+        metadata_df = metadata_df[metadata_df['segment_id'].isin(segment_ids)]
+    
+    save_results(predictions, probabilities, y_test[:len(predictions)] if not args.no_labels else None, 
+                segment_ids, output_path, metadata_df)
     
     print("\n" + "="*60)
     print("INFERENCE COMPLETE")
