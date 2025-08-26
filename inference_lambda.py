@@ -154,7 +154,12 @@ def perform_inference(model, dataloader, device, show_progress=True):
             
             # Forward pass
             outputs = model(input_ids=input_ids, attention_mask=attention_mask)
-            logits = outputs.logits
+            
+            # Handle both dict and object outputs
+            if isinstance(outputs, dict):
+                logits = outputs['logits']
+            else:
+                logits = outputs.logits
             
             # Get probabilities and predictions
             probs = torch.softmax(logits, dim=-1)
