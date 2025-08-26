@@ -9,11 +9,12 @@ from prokbert.training_utils import get_default_pretrained_model_parameters, get
 from prokbert.prok_datasets import ProkBERTTrainingDatasetPT
 import time
 
-def prepare_lambda_dataframe(dataset_split, max_length=1024):
+def prepare_lambda_dataframe(df, max_length=1024):
     """
-    Convert lambda dataset split to the format expected by ProkBERT.
+    Convert lambda dataset dataframe to the format expected by ProkBERT.
     """
-    df = dataset_split.to_pandas()
+    # df is already a pandas DataFrame
+    df = df.copy()  # Make a copy to avoid modifying the original
     
     # Truncate sequences that are too long
     df['sequence'] = df['sequence'].apply(lambda x: x[:max_length] if len(x) > max_length else x)
