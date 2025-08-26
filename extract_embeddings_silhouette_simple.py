@@ -5,89 +5,66 @@ from sklearn.metrics import silhouette_score
 from sklearn.decomposition import PCA
 from tqdm import tqdm
 import pandas as pd
-from prokbert.training_utils import get_default_pretrained_model_parameters
+from prokbert.training_utils import get_default_pretrained_model_parameters, get_torch_data_from_segmentdb_classification
+from prokbert.prok_datasets import ProkBERTTrainingDatasetPT
+import time
 
-def truncate_sequence(sequence, max_length=1024):
-    """Truncate sequence to max_length"""
-    return sequence[:max_length] if len(sequence) > max_length else sequence
-
-def get_embeddings(model, tokenizer, sequences, batch_size=32):
+def prepare_lambda_dataframe(dataset_split, max_length=1024):
     """
-    Extract embeddings from ProkBERT model for a list of sequences.
+    Convert lambda dataset split to the format expected by ProkBERT.
+    """
+    df = dataset_split.to_pandas()
     
-    Args:
-        model: ProkBERT model
-        tokenizer: ProkBERT tokenizer
-        sequences: List of DNA sequences
-        batch_size: Batch size for processing
-        
-    Returns:
-        numpy array of embeddings
+    # Truncate sequences that are too long
+    df['sequence'] = df['sequence'].apply(lambda x: x[:max_length] if len(x) > max_length else x)
+    
+    # Rename 'sequence' to 'segment'
+    df['segment'] = df['sequence']
+    
+    # Create segment_id as a unique identifier
+    df['segment_id'] = [f"seq_{i}" for i in range(len(df))]
+    
+    # Create 'y' column (same as label for binary classification)
+    df['y'] = df['label']
+    
+    return df
+
+def get_embeddings_from_dataset(model, dataset, batch_size=32):
+    """
+    Extract embeddings using ProkBERT's dataset format.
     """
     model.eval()
     embeddings = []
-    device = next(model.parameters()).device  # Get the device the model is on
+    device = next(model.parameters()).device
     
-    print(f"Device: {device}")
-    print(f"Total sequences: {len(sequences)}")
-    print(f"Batch size: {batch_size}")
-    print(f"First sequence length: {len(sequences[0])}")
+    # Create dataloader
+    dataloader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0  # Avoid multiprocessing issues
+    )
     
-    # Process in batches
-    for batch_idx, i in enumerate(tqdm(range(0, len(sequences), batch_size), desc="Extracting embeddings")):
-        batch_sequences = sequences[i:i+batch_size]
-        
-        # Debug first batch
-        if batch_idx == 0:
-            print(f"\nFirst batch - Number of sequences: {len(batch_sequences)}")
-            print(f"First sequence in batch (first 50 chars): {batch_sequences[0][:50]}")
-        
-        # Tokenize batch - Use the tokenizer's encode method directly to avoid preprocessing
-        import torch
-        input_ids_list = []
-        attention_mask_list = []
-        
-        for seq in batch_sequences:
-            # Tokenize each sequence
-            tokens = tokenizer.tokenize(seq[:1024])  # Truncate to max length
-            token_ids = tokenizer.convert_tokens_to_ids(tokens)
+    print(f"Processing {len(dataloader)} batches...")
+    
+    with torch.no_grad():
+        for batch in tqdm(dataloader, desc="Extracting embeddings"):
+            # Move batch to device
+            input_ids = batch['input_ids'].to(device)
+            attention_mask = batch['attention_mask'].to(device)
             
-            # Add special tokens
-            token_ids = [tokenizer.cls_token_id] + token_ids[:1022] + [tokenizer.sep_token_id]
-            attention_mask = [1] * len(token_ids)
-            
-            # Pad to max length in batch
-            input_ids_list.append(token_ids)
-            attention_mask_list.append(attention_mask)
-        
-        # Pad all sequences to same length
-        max_len = max(len(ids) for ids in input_ids_list)
-        for idx in range(len(input_ids_list)):
-            padding_length = max_len - len(input_ids_list[idx])
-            input_ids_list[idx] = input_ids_list[idx] + [tokenizer.pad_token_id] * padding_length
-            attention_mask_list[idx] = attention_mask_list[idx] + [0] * padding_length
-        
-        # Convert to tensors
-        input_ids = torch.tensor(input_ids_list, dtype=torch.long).to(device)
-        attention_mask = torch.tensor(attention_mask_list, dtype=torch.long).to(device)
-        
-        if batch_idx == 0:
-            print(f"Input shape: {input_ids.shape}")
-            print(f"Attention mask shape: {attention_mask.shape}")
-        
-        # Get embeddings
-        with torch.no_grad():
+            # Get model outputs
             outputs = model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 output_hidden_states=True
             )
             
-            # Use the last hidden state and apply mean pooling
+            # Use the last hidden state
             last_hidden_state = outputs.hidden_states[-1]
             
             # Mean pooling (considering attention mask)
-            attention_mask_expanded = encoded['attention_mask'].unsqueeze(-1).expand(last_hidden_state.size()).float()
+            attention_mask_expanded = attention_mask.unsqueeze(-1).expand(last_hidden_state.size()).float()
             sum_embeddings = torch.sum(last_hidden_state * attention_mask_expanded, 1)
             sum_mask = torch.clamp(attention_mask_expanded.sum(1), min=1e-9)
             mean_pooled = sum_embeddings / sum_mask
@@ -98,6 +75,8 @@ def get_embeddings(model, tokenizer, sequences, batch_size=32):
 
 def main():
     print("Loading ProkBERT model...")
+    start_time = time.time()
+    
     # Load the pretrained ProkBERT model
     pretrained_model, tokenizer = get_default_pretrained_model_parameters(
         model_name="neuralbioinfo/prokbert-mini",
@@ -111,11 +90,12 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     pretrained_model = pretrained_model.to(device)
     print(f"Using device: {device}")
+    print(f"Model loading time: {time.time() - start_time:.2f} seconds")
     
-    print("Loading lambda dataset...")
+    print("\nLoading lambda dataset...")
     dataset = load_dataset("leannmlindsey/lambda")
     
-    # Sample a subset for faster computation (you can remove this for full dataset)
+    # Sample a subset for faster computation
     num_samples = 5000  # Adjust as needed
     
     # Process train set
@@ -127,17 +107,25 @@ def main():
         train_df = train_df.sample(n=num_samples, random_state=42)
         print(f"Sampled {num_samples} sequences from training set")
     
-    # Truncate sequences
-    train_df['sequence'] = train_df['sequence'].apply(lambda x: truncate_sequence(x, 1024))
+    # Prepare dataframe in ProkBERT format
+    train_db = prepare_lambda_dataframe(train_df, max_length=1024)
+    labels = train_db['y'].values
     
-    sequences = train_df['sequence'].tolist()
-    labels = train_df['label'].values
-    
-    print(f"Processing {len(sequences)} sequences...")
+    print(f"Processing {len(train_db)} sequences...")
     print(f"Label distribution: {np.bincount(labels)}")
     
+    # Use ProkBERT's tokenization pipeline
+    print("\nTokenizing sequences...")
+    tokenize_start = time.time()
+    [X_train, y_train, torchdb_train] = get_torch_data_from_segmentdb_classification(tokenizer, train_db)
+    train_ds = ProkBERTTrainingDatasetPT(X_train, y_train, AddAttentionMask=True)
+    print(f"Tokenization time: {time.time() - tokenize_start:.2f} seconds")
+    
     # Extract embeddings
-    embeddings = get_embeddings(pretrained_model, tokenizer, sequences, batch_size=32)
+    print("\nExtracting embeddings...")
+    embed_start = time.time()
+    embeddings = get_embeddings_from_dataset(pretrained_model, train_ds, batch_size=64)
+    print(f"Embedding extraction time: {time.time() - embed_start:.2f} seconds")
     print(f"Embeddings shape: {embeddings.shape}")
     
     # Calculate silhouette score on full embeddings
@@ -180,11 +168,11 @@ def main():
     
     # Save results
     results = {
-        'silhouette_score_full': silhouette_full,
-        'inter_class_distance': inter_class_distance,
-        'avg_intra_class_distance': avg_intra_class,
-        'separation_ratio': inter_class_distance/avg_intra_class,
-        'num_samples': len(sequences),
+        'silhouette_score_full': float(silhouette_full),
+        'inter_class_distance': float(inter_class_distance),
+        'avg_intra_class_distance': float(avg_intra_class),
+        'separation_ratio': float(inter_class_distance/avg_intra_class),
+        'num_samples': len(train_db),
         'embedding_dim': embeddings.shape[1]
     }
     
@@ -194,6 +182,7 @@ def main():
         json.dump(results, f, indent=2)
     
     print("\nResults saved to embedding_analysis_results.json")
+    print(f"Total execution time: {time.time() - start_time:.2f} seconds")
     
     # Interpretation guide
     print("\n" + "="*50)
