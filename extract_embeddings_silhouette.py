@@ -26,6 +26,7 @@ def get_embeddings(model, tokenizer, sequences, batch_size=32):
     """
     model.eval()
     embeddings = []
+    device = next(model.parameters()).device  # Get the device the model is on
     
     # Process in batches
     for i in tqdm(range(0, len(sequences), batch_size), desc="Extracting embeddings"):
@@ -39,6 +40,9 @@ def get_embeddings(model, tokenizer, sequences, batch_size=32):
             max_length=1024,
             return_tensors='pt'
         )
+        
+        # Move tensors to the same device as the model
+        encoded = {k: v.to(device) for k, v in encoded.items()}
         
         # Get embeddings
         with torch.no_grad():
