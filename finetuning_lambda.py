@@ -203,7 +203,8 @@ def main(prokbert_config):
     val_ds = ProkBERTTrainingDatasetPT(X_val, y_val, AddAttentionMask=True)
     test_ds = ProkBERTTrainingDatasetPT(X_test, y_test, AddAttentionMask=True)
 
-    final_model_output = join(prokbert_config.model_params['model_outputpath'], prokbert_config.model_params['model_name'])
+    # Use ftmodel for the fine-tuned model output path, not the base model name
+    final_model_output = join(prokbert_config.model_params['model_outputpath'], prokbert_config.finetuning_params['ftmodel'])
 
     training_args = TrainingArguments(**prokbert_config.pretraining_params)
     trainer = Trainer(

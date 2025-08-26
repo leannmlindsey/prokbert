@@ -212,16 +212,18 @@ def main():
     if args.model_type == 'finetuned':
         # Load fine-tuned model
         print("Loading fine-tuned model...")
-        # First load the base model
-        base_model, tokenizer = get_default_pretrained_model_parameters(
-            model_name="neuralbioinfo/prokbert-mini",  # Base model
+        # Load tokenizer from base model
+        _, tokenizer = get_default_pretrained_model_parameters(
+            model_name="neuralbioinfo/prokbert-mini",  # Base model for tokenizer
             model_class='MegatronBertModel',
             output_hidden_states=True,
             output_attentions=False,
-            move_to_gpu=torch.cuda.is_available()
+            move_to_gpu=False  # Don't move tokenizer model to GPU
         )
-        # Then load the fine-tuned weights
+        # Load the complete fine-tuned model with its weights
+        print(f"Loading fine-tuned model from: {args.model}")
         model = BertForBinaryClassificationWithPooling.from_pretrained(args.model)
+        print("Fine-tuned model loaded successfully")
     else:
         # Load pretrained model
         print("Loading pretrained model...")
