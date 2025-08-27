@@ -218,8 +218,10 @@ def create_comparison_report(metrics_list, output_path):
             improvement_mcc = best_mcc['mcc'] - default['mcc']
             improvement_f1 = best_mcc['f1'] - default['f1']
             f.write(f"\n2. IMPROVEMENT OVER DEFAULT (0.5):\n")
-            f.write(f"   MCC:  {default['mcc']:.3f} → {best_mcc['mcc']:.3f} ({"+" if improvement_mcc > 0 else ""}{improvement_mcc:.3f})\n")
-            f.write(f"   F1:   {default['f1']:.3f} → {best_mcc['f1']:.3f} ({"+" if improvement_f1 > 0 else ""}{improvement_f1:.3f})\n")
+            sign_mcc = "+" if improvement_mcc > 0 else ""
+            sign_f1 = "+" if improvement_f1 > 0 else ""
+            f.write(f"   MCC:  {default['mcc']:.3f} → {best_mcc['mcc']:.3f} ({sign_mcc}{improvement_mcc:.3f})\n")
+            f.write(f"   F1:   {default['f1']:.3f} → {best_mcc['f1']:.3f} ({sign_f1}{improvement_f1:.3f})\n")
             f.write(f"   FP reduction: {default['fp']:,} → {best_mcc['fp']:,} ({(default['fp']-best_mcc['fp'])/default['fp']*100:.1f}% reduction)\n")
         
         f.write("\n" + "="*80 + "\n")
