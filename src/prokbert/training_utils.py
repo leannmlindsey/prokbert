@@ -566,7 +566,7 @@ def load_pretrained_model(model_path, model_class, device, output_hidden_states=
     """
     torch.cuda.empty_cache()
     ModelClass = getattr(import_module('transformers'), model_class)
-    model = ModelClass.from_pretrained(model_path, output_attentions=output_attentions,output_hidden_states=output_hidden_states)
+    model = ModelClass.from_pretrained(model_path, output_attentions=output_attentions, output_hidden_states=output_hidden_states, trust_remote_code=True)
     #model = torch.compile(model)
 
     if move_to_gpu:

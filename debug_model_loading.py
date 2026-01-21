@@ -17,7 +17,7 @@ def main():
 
     # Step 1: Check what's in the model on HuggingFace
     print(f"\n1. Loading config from: {model_name}")
-    config = AutoConfig.from_pretrained(model_name)
+    config = AutoConfig.from_pretrained(model_name, trust_remote_code=True)
     print(f"   Config type: {type(config).__name__}")
     print(f"   Hidden size: {config.hidden_size}")
     print(f"   Num layers: {config.num_hidden_layers}")
@@ -27,7 +27,8 @@ def main():
     print(f"\n2. Loading MegatronBertModel from: {model_name}")
     model = MegatronBertModel.from_pretrained(
         model_name,
-        output_hidden_states=True
+        output_hidden_states=True,
+        trust_remote_code=True
     )
     print(f"   Model type: {type(model).__name__}")
     print(f"   Number of parameters: {model.num_parameters():,}")
