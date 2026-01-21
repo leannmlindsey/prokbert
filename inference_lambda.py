@@ -15,14 +15,24 @@ Examples:
 """
 
 import argparse
+import json
 import os
 import sys
+import time
 import torch
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from datasets import load_dataset
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix, roc_auc_score
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+    f1_score,
+    matthews_corrcoef,
+    roc_auc_score,
+    confusion_matrix,
+)
 
 from prokbert.prokbert_tokenizer import ProkBERTTokenizer
 from prokbert.training_utils import get_default_pretrained_model_parameters, get_torch_data_from_segmentdb_classification
@@ -173,44 +183,44 @@ def perform_inference(model, dataloader, device, show_progress=True):
 
 def calculate_metrics(y_true, y_pred, y_prob=None):
     """
-    Calculate classification metrics.
-    
+    Calculate comprehensive classification metrics.
+
     Args:
         y_true: True labels
         y_pred: Predicted labels
         y_prob: Prediction probabilities (optional)
-    
+
     Returns:
-        dict: Dictionary of metrics
+        dict: Dictionary of metrics (all values are JSON-serializable)
     """
-    metrics = {}
-    
-    # Basic metrics
-    metrics['accuracy'] = accuracy_score(y_true, y_pred)
-    
-    # Precision, recall, F1
-    precision, recall, f1, support = precision_recall_fscore_support(
-        y_true, y_pred, average='binary', zero_division=0
-    )
-    metrics['precision'] = precision
-    metrics['recall'] = recall
-    metrics['f1'] = f1
-    
-    # Confusion matrix
-    cm = confusion_matrix(y_true, y_pred)
-    metrics['confusion_matrix'] = cm
-    metrics['true_negatives'] = cm[0, 0]
-    metrics['false_positives'] = cm[0, 1]
-    metrics['false_negatives'] = cm[1, 0]
-    metrics['true_positives'] = cm[1, 1]
-    
+    metrics = {
+        "accuracy": float(accuracy_score(y_true, y_pred)),
+        "precision": float(precision_score(y_true, y_pred, zero_division=0)),
+        "recall": float(recall_score(y_true, y_pred, zero_division=0)),
+        "f1": float(f1_score(y_true, y_pred, zero_division=0)),
+        "mcc": float(matthews_corrcoef(y_true, y_pred)),
+    }
+
     # AUC if probabilities are available
     if y_prob is not None and len(np.unique(y_true)) > 1:
         try:
-            metrics['auc'] = roc_auc_score(y_true, y_prob[:, 1])
+            metrics["auc"] = float(roc_auc_score(y_true, y_prob[:, 1]))
         except:
-            metrics['auc'] = None
-    
+            metrics["auc"] = 0.0
+    else:
+        metrics["auc"] = 0.0
+
+    # Confusion matrix - Sensitivity and Specificity
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
+    metrics["sensitivity"] = float(tp / (tp + fn)) if (tp + fn) > 0 else 0.0
+    metrics["specificity"] = float(tn / (tn + fp)) if (tn + fp) > 0 else 0.0
+
+    # Confusion matrix values
+    metrics["true_negatives"] = int(tn)
+    metrics["false_positives"] = int(fp)
+    metrics["false_negatives"] = int(fn)
+    metrics["true_positives"] = int(tp)
+
     return metrics
 
 
@@ -274,6 +284,8 @@ def main():
                         help='Dataset split to use (default: test)')
     parser.add_argument('--no_labels', action='store_true',
                         help='Run inference without labels (prediction only mode)')
+    parser.add_argument('--save_metrics', action='store_true',
+                        help='If labels are present, calculate and save metrics to JSON')
     
     # Processing arguments
     parser.add_argument('--batch_size', type=int, default=32,
@@ -306,6 +318,8 @@ def main():
     print(f"Batch size: {args.batch_size}")
     print(f"Max length: {args.max_length}")
     print("="*60)
+
+    start_time = time.time()
     
     # Check checkpoint exists
     if not os.path.exists(args.checkpoint_path):
@@ -442,16 +456,20 @@ def main():
     if not args.no_labels:
         print(f"\n6. Calculating metrics...")
         metrics = calculate_metrics(y_test, predictions, probabilities)
-        
-        print("\nRESULTS:")
-        print("-"*40)
-        print(f"Accuracy:  {metrics['accuracy']:.4f}")
-        print(f"Precision: {metrics['precision']:.4f}")
-        print(f"Recall:    {metrics['recall']:.4f}")
-        print(f"F1-Score:  {metrics['f1']:.4f}")
-        if metrics.get('auc'):
-            print(f"AUC:       {metrics['auc']:.4f}")
-        
+
+        print("\n" + "="*60)
+        print("METRICS")
+        print("="*60)
+        print(f"  Accuracy:    {metrics['accuracy']:.4f}")
+        print(f"  Precision:   {metrics['precision']:.4f}")
+        print(f"  Recall:      {metrics['recall']:.4f}")
+        print(f"  F1 Score:    {metrics['f1']:.4f}")
+        print(f"  MCC:         {metrics['mcc']:.4f}")
+        print(f"  AUC:         {metrics['auc']:.4f}")
+        print(f"  Sensitivity: {metrics['sensitivity']:.4f}")
+        print(f"  Specificity: {metrics['specificity']:.4f}")
+        print("="*60)
+
         print(f"\nConfusion Matrix:")
         print(f"              Predicted")
         print(f"              0     1")
@@ -482,11 +500,31 @@ def main():
         # Filter metadata to match the processed segments
         metadata_df = metadata_df[metadata_df['segment_id'].isin(segment_ids)]
     
-    save_results(predictions, probabilities, y_test[:len(predictions)] if not args.no_labels else None, 
+    save_results(predictions, probabilities, y_test[:len(predictions)] if not args.no_labels else None,
                 segment_ids, output_path, metadata_df)
-    
+
+    # Save metrics to JSON if requested
+    if not args.no_labels and args.save_metrics:
+        # Add metadata to metrics
+        metrics["model_path"] = args.checkpoint_path
+        metrics["input_file"] = args.dataset_file if args.dataset_file else args.dataset
+        metrics["num_samples"] = len(predictions)
+        metrics["batch_size"] = args.batch_size
+        metrics["max_length"] = args.max_length
+
+        # Save metrics to JSON
+        metrics_path = output_path.replace(".csv", "_metrics.json")
+        with open(metrics_path, "w") as f:
+            json.dump(metrics, f, indent=2)
+        print(f"Saved metrics to: {metrics_path}")
+
+    # Print timing info
+    elapsed = time.time() - start_time
     print("\n" + "="*60)
     print("INFERENCE COMPLETE")
+    print("="*60)
+    print(f"Completed in {elapsed:.2f} seconds")
+    print(f"Throughput: {len(predictions) / elapsed:.1f} sequences/second")
     print("="*60)
 
 

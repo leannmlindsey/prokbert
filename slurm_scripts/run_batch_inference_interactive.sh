@@ -151,7 +151,8 @@ while IFS= read -r INPUT_CSV || [ -n "${INPUT_CSV}" ]; do
         --batch_size=${BATCH_SIZE} \
         --max_length=${MAX_LENGTH} \
         --output_dir="${OUTPUT_DIR}" \
-        --output_file="${INPUT_BASENAME}_predictions.csv"
+        --output_file="${INPUT_BASENAME}_predictions.csv" \
+        --save_metrics
 
     echo ""
 

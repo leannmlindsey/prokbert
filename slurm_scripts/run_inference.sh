@@ -92,7 +92,8 @@ python inference_lambda.py \
     --batch_size=${BATCH_SIZE} \
     --max_length=${MAX_LENGTH} \
     --output_dir="${OUTPUT_DIR}" \
-    --output_file="$(basename ${OUTPUT_CSV})"
+    --output_file="$(basename ${OUTPUT_CSV})" \
+    --save_metrics
 
 echo ""
 echo "============================================================"
