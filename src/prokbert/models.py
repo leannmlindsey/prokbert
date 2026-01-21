@@ -108,13 +108,29 @@ class BertForBinaryClassificationWithPooling(nn.Module):
             if 'config' in kwargs:
                 print('Config is in the parameters')
                 config = kwargs['config']
-                  
-            else:                
+
+            else:
                 config = MegatronBertConfig.from_pretrained(pretrained_model_name_or_path, **kwargs)
             base_model = MegatronBertModel(config=config)
             model = cls(base_model=base_model)
-            model_path = os.path.join(pretrained_model_name_or_path, "pytorch_model.bin")
-            model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu'), weights_only=True))
+
+            # Check for safetensors first, then pytorch_model.bin
+            safetensors_path = os.path.join(pretrained_model_name_or_path, "model.safetensors")
+            pytorch_path = os.path.join(pretrained_model_name_or_path, "pytorch_model.bin")
+
+            if os.path.exists(safetensors_path):
+                # Load from safetensors format
+                from safetensors.torch import load_file
+                state_dict = load_file(safetensors_path)
+                model.load_state_dict(state_dict)
+            elif os.path.exists(pytorch_path):
+                # Load from pytorch format
+                model.load_state_dict(torch.load(pytorch_path, map_location=torch.device('cpu'), weights_only=True))
+            else:
+                raise FileNotFoundError(
+                    f"No model weights found in {pretrained_model_name_or_path}. "
+                    f"Expected 'model.safetensors' or 'pytorch_model.bin'"
+                )
         else:
             # Path is from Hugging Face Hub
             config = kwargs.pop('config', None)
@@ -123,8 +139,16 @@ class BertForBinaryClassificationWithPooling(nn.Module):
 
             base_model = MegatronBertModel(config=config)
             model = cls(base_model=base_model)
-            model_file = cached_file(pretrained_model_name_or_path, "pytorch_model.bin")
-            model.load_state_dict(torch.load(model_file, map_location=torch.device('cpu'), weights_only=True))
+
+            # Try safetensors first, then pytorch_model.bin
+            try:
+                model_file = cached_file(pretrained_model_name_or_path, "model.safetensors")
+                from safetensors.torch import load_file
+                state_dict = load_file(model_file)
+                model.load_state_dict(state_dict)
+            except:
+                model_file = cached_file(pretrained_model_name_or_path, "pytorch_model.bin")
+                model.load_state_dict(torch.load(model_file, map_location=torch.device('cpu'), weights_only=True))
 
         return model
 
