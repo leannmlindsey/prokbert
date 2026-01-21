@@ -218,17 +218,18 @@ def extract_embeddings(
     pooling: str,
     device: torch.device,
 ) -> np.ndarray:
-    """Extract embeddings from ProkBERT for given sequences using ProkBERT's tokenization pipeline."""
+    """Extract embeddings from ProkBERT (matching working finetuning_lambda.py approach)."""
     model.eval()
 
-    # Prepare DataFrame in ProkBERT format
+    # Prepare DataFrame in ProkBERT format (same as finetuning script)
     df = prepare_prokbert_dataframe(sequences, labels, max_length)
 
-    # Tokenize using ProkBERT's pipeline
+    # Tokenize using ProkBERT's pipeline (same as finetuning script)
+    # IMPORTANT: randomize=False to keep embeddings aligned with original label order
     print(f"  Tokenizing {len(sequences)} sequences...")
-    X, y, torchdb = get_torch_data_from_segmentdb_classification(tokenizer, df)
+    X, y, torchdb = get_torch_data_from_segmentdb_classification(tokenizer, df, randomize=False)
 
-    # Create ProkBERT dataset with attention masks
+    # Create ProkBERT dataset with attention masks (same as finetuning script)
     dataset = ProkBERTTrainingDatasetPT(X, y, AddAttentionMask=True)
 
     # Create dataloader
@@ -236,14 +237,13 @@ def extract_embeddings(
         dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=0  # Avoid multiprocessing issues
+        num_workers=0
     )
 
     all_embeddings = []
 
     with torch.no_grad():
         for batch in tqdm(dataloader, desc="Extracting embeddings"):
-            # Move batch to device
             input_ids = batch['input_ids'].to(device)
             attention_mask = batch['attention_mask'].to(device)
 
@@ -460,25 +460,17 @@ def main():
     print(f"  Val samples: {len(val_df)}")
     print(f"  Test samples: {len(test_df)}")
 
-    # Load model and tokenizer using AutoModel (as recommended in ProkBERT README)
+    # Load model and tokenizer (matching working finetuning_lambda.py approach)
     print(f"\nLoading ProkBERT model from: {args.model_path}")
-    from transformers import AutoModel
-    from prokbert.prokbert_tokenizer import ProkBERTTokenizer
-
-    # Load model with AutoModel to get correct model type
-    model = AutoModel.from_pretrained(
-        args.model_path,
+    model, tokenizer = get_default_pretrained_model_parameters(
+        model_name=args.model_path,
+        model_class='MegatronBertModel',
         output_hidden_states=True,
-        trust_remote_code=True
+        output_attentions=False,
+        move_to_gpu=torch.cuda.is_available()
     )
     model = model.to(device)
     model.eval()
-
-    # Load tokenizer with correct parameters for prokbert-mini
-    tokenizer = ProkBERTTokenizer(
-        tokenization_params={'kmer': 6, 'shift': 1},
-        operation_space='sequence'
-    )
 
     # Get embedding dimension from model config
     embedding_dim = model.config.hidden_size
