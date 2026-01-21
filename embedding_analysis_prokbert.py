@@ -460,17 +460,25 @@ def main():
     print(f"  Val samples: {len(val_df)}")
     print(f"  Test samples: {len(test_df)}")
 
-    # Load model and tokenizer
+    # Load model and tokenizer using AutoModel (as recommended in ProkBERT README)
     print(f"\nLoading ProkBERT model from: {args.model_path}")
-    model, tokenizer = get_default_pretrained_model_parameters(
-        model_name=args.model_path,
-        model_class='MegatronBertModel',
+    from transformers import AutoModel
+    from prokbert.prokbert_tokenizer import ProkBERTTokenizer
+
+    # Load model with AutoModel to get correct model type
+    model = AutoModel.from_pretrained(
+        args.model_path,
         output_hidden_states=True,
-        output_attentions=False,
-        move_to_gpu=torch.cuda.is_available()
+        trust_remote_code=True
     )
     model = model.to(device)
     model.eval()
+
+    # Load tokenizer with correct parameters for prokbert-mini
+    tokenizer = ProkBERTTokenizer(
+        tokenization_params={'kmer': 6, 'shift': 1},
+        operation_space='sequence'
+    )
 
     # Get embedding dimension from model config
     embedding_dim = model.config.hidden_size
