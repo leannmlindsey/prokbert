@@ -46,7 +46,8 @@ from sklearn.decomposition import PCA
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
 
-from prokbert.training_utils import get_default_pretrained_model_parameters
+from prokbert.training_utils import get_default_pretrained_model_parameters, get_torch_data_from_segmentdb_classification
+from prokbert.prok_datasets import ProkBERTTrainingDatasetPT
 
 
 def parse_arguments() -> argparse.Namespace:
@@ -175,54 +176,78 @@ class ThreeLayerNN(nn.Module):
         return self.network(x)
 
 
+def prepare_prokbert_dataframe(sequences: List[str], labels: List[int], max_length: int) -> pd.DataFrame:
+    """
+    Convert sequences to the DataFrame format expected by ProkBERT.
+
+    Args:
+        sequences: List of DNA sequences
+        labels: List of labels (can be dummy values for embedding extraction)
+        max_length: Maximum sequence length
+
+    Returns:
+        DataFrame with columns: segment, segment_id, y, label
+    """
+    df = pd.DataFrame({
+        'sequence': sequences,
+        'label': labels
+    })
+
+    # Truncate sequences that are too long
+    df['sequence'] = df['sequence'].apply(lambda x: x[:max_length] if len(x) > max_length else x)
+
+    # Rename 'sequence' to 'segment' (ProkBERT convention)
+    df['segment'] = df['sequence']
+
+    # Create segment_id as a unique identifier
+    df['segment_id'] = [f"seq_{i}" for i in range(len(df))]
+
+    # Create 'y' column (same as label for binary classification)
+    df['y'] = df['label']
+
+    return df
+
+
 def extract_embeddings(
     model,
     tokenizer,
     sequences: List[str],
+    labels: List[int],
     batch_size: int,
     max_length: int,
     pooling: str,
     device: torch.device,
 ) -> np.ndarray:
-    """Extract embeddings from ProkBERT for given sequences."""
+    """Extract embeddings from ProkBERT for given sequences using ProkBERT's tokenization pipeline."""
     model.eval()
+
+    # Prepare DataFrame in ProkBERT format
+    df = prepare_prokbert_dataframe(sequences, labels, max_length)
+
+    # Tokenize using ProkBERT's pipeline
+    print(f"  Tokenizing {len(sequences)} sequences...")
+    X, y, torchdb = get_torch_data_from_segmentdb_classification(tokenizer, df)
+
+    # Create ProkBERT dataset with attention masks
+    dataset = ProkBERTTrainingDatasetPT(X, y, AddAttentionMask=True)
+
+    # Create dataloader
+    dataloader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0  # Avoid multiprocessing issues
+    )
+
     all_embeddings = []
 
-    for i in tqdm(range(0, len(sequences), batch_size), desc="Extracting embeddings"):
-        batch_sequences = sequences[i : i + batch_size]
+    with torch.no_grad():
+        for batch in tqdm(dataloader, desc="Extracting embeddings"):
+            # Move batch to device
+            input_ids = batch['input_ids'].to(device)
+            attention_mask = batch['attention_mask'].to(device)
 
-        # Tokenize each sequence using ProkBERT's tokenizer
-        input_ids_list = []
-        attention_mask_list = []
-
-        for seq in batch_sequences:
-            # Truncate sequence to max_length
-            seq = seq[:max_length] if len(seq) > max_length else seq
-
-            # Tokenize
-            tokens = tokenizer.tokenize(seq)
-            token_ids = tokenizer.convert_tokens_to_ids(tokens)
-
-            # Add special tokens: [CLS] ... [SEP]
-            # Limit to max tokens (1024 - 2 for special tokens)
-            token_ids = [tokenizer.cls_token_id] + token_ids[:1022] + [tokenizer.sep_token_id]
-            attention_mask = [1] * len(token_ids)
-
-            input_ids_list.append(token_ids)
-            attention_mask_list.append(attention_mask)
-
-        # Pad all sequences to same length
-        max_len = max(len(ids) for ids in input_ids_list)
-        for idx in range(len(input_ids_list)):
-            padding_length = max_len - len(input_ids_list[idx])
-            input_ids_list[idx] = input_ids_list[idx] + [tokenizer.pad_token_id] * padding_length
-            attention_mask_list[idx] = attention_mask_list[idx] + [0] * padding_length
-
-        # Convert to tensors
-        input_ids = torch.tensor(input_ids_list, dtype=torch.long).to(device)
-        attention_mask = torch.tensor(attention_mask_list, dtype=torch.long).to(device)
-
-        with torch.no_grad():
+            # Get model outputs
             outputs = model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
@@ -452,24 +477,30 @@ def main():
     print(f"  Embedding dimension: {embedding_dim}")
 
     # Extract embeddings
+    # Get labels first (needed for tokenization pipeline)
+    train_labels = train_df["label"].values.tolist()
+    val_labels = val_df["label"].values.tolist()
+    test_labels = test_df["label"].values.tolist()
+
     print(f"\nExtracting embeddings (pooling={args.pooling})...")
 
     train_embeddings = extract_embeddings(
-        model, tokenizer, train_df["sequence"].tolist(),
+        model, tokenizer, train_df["sequence"].tolist(), train_labels,
         args.batch_size, args.max_length, args.pooling, device,
     )
     val_embeddings = extract_embeddings(
-        model, tokenizer, val_df["sequence"].tolist(),
+        model, tokenizer, val_df["sequence"].tolist(), val_labels,
         args.batch_size, args.max_length, args.pooling, device,
     )
     test_embeddings = extract_embeddings(
-        model, tokenizer, test_df["sequence"].tolist(),
+        model, tokenizer, test_df["sequence"].tolist(), test_labels,
         args.batch_size, args.max_length, args.pooling, device,
     )
 
-    train_labels = train_df["label"].values
-    val_labels = val_df["label"].values
-    test_labels = test_df["label"].values
+    # Convert labels to numpy arrays for later use
+    train_labels = np.array(train_labels)
+    val_labels = np.array(val_labels)
+    test_labels = np.array(test_labels)
 
     print(f"  Train embeddings shape: {train_embeddings.shape}")
     print(f"  Val embeddings shape: {val_embeddings.shape}")
@@ -604,15 +635,15 @@ def main():
         # Extract random embeddings
         print("Extracting random embeddings...")
         train_random = extract_embeddings(
-            random_model, tokenizer, train_df["sequence"].tolist(),
+            random_model, tokenizer, train_df["sequence"].tolist(), train_labels.tolist(),
             args.batch_size, args.max_length, args.pooling, device,
         )
         val_random = extract_embeddings(
-            random_model, tokenizer, val_df["sequence"].tolist(),
+            random_model, tokenizer, val_df["sequence"].tolist(), val_labels.tolist(),
             args.batch_size, args.max_length, args.pooling, device,
         )
         test_random = extract_embeddings(
-            random_model, tokenizer, test_df["sequence"].tolist(),
+            random_model, tokenizer, test_df["sequence"].tolist(), test_labels.tolist(),
             args.batch_size, args.max_length, args.pooling, device,
         )
 
