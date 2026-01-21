@@ -342,14 +342,45 @@ def main():
             print(f"   Loading weights from safetensors: {safetensors_path}")
             from safetensors.torch import load_file
             state_dict = load_file(safetensors_path)
-            model.load_state_dict(state_dict)
         elif os.path.exists(pytorch_path):
             print(f"   Loading weights from pytorch: {pytorch_path}")
-            model.load_state_dict(torch.load(pytorch_path, map_location=torch.device('cpu'), weights_only=True))
+            state_dict = torch.load(pytorch_path, map_location=torch.device('cpu'), weights_only=True)
         else:
             raise FileNotFoundError(
                 f"No model weights found. Expected 'model.safetensors' or 'pytorch_model.bin' in {args.checkpoint_path}"
             )
+
+        # Handle state dict key mapping
+        # Checkpoint may have 'bert.*' keys but model expects 'base_model.*' keys
+        model_state_dict = model.state_dict()
+        checkpoint_keys = set(state_dict.keys())
+        model_keys = set(model_state_dict.keys())
+
+        # Check if we need to remap keys
+        if checkpoint_keys != model_keys:
+            print(f"   Key mismatch detected, attempting to remap...")
+            # Check if checkpoint has 'bert.' prefix instead of 'base_model.'
+            has_bert_prefix = any(k.startswith('bert.') for k in checkpoint_keys)
+            has_base_model_prefix = any(k.startswith('base_model.') for k in checkpoint_keys)
+
+            if has_bert_prefix and not has_base_model_prefix:
+                # Remap 'bert.*' -> 'base_model.*'
+                print(f"   Remapping 'bert.*' keys to 'base_model.*'")
+                new_state_dict = {}
+                for key, value in state_dict.items():
+                    if key.startswith('bert.'):
+                        new_key = 'base_model.' + key[5:]  # Remove 'bert.' prefix, add 'base_model.'
+                        new_state_dict[new_key] = value
+                    else:
+                        new_state_dict[key] = value
+                state_dict = new_state_dict
+
+        # Load state dict with strict=False to handle any remaining mismatches gracefully
+        missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+        if missing_keys:
+            print(f"   Warning: Missing keys: {missing_keys[:5]}..." if len(missing_keys) > 5 else f"   Warning: Missing keys: {missing_keys}")
+        if unexpected_keys:
+            print(f"   Warning: Unexpected keys: {unexpected_keys[:5]}..." if len(unexpected_keys) > 5 else f"   Warning: Unexpected keys: {unexpected_keys}")
 
         model = model.to(device)
         model.eval()
