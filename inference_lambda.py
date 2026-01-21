@@ -325,12 +325,39 @@ def main():
     # Load fine-tuned model
     print(f"\n2. Loading fine-tuned model from {args.checkpoint_path}...")
     try:
-        model = BertForBinaryClassificationWithPooling.from_pretrained(args.checkpoint_path)
+        # Check for safetensors or pytorch_model.bin
+        safetensors_path = os.path.join(args.checkpoint_path, "model.safetensors")
+        pytorch_path = os.path.join(args.checkpoint_path, "pytorch_model.bin")
+
+        # Load config from BASE model (not checkpoint) - more reliable
+        from transformers import MegatronBertConfig, MegatronBertModel
+        base_model_name = "neuralbioinfo/prokbert-mini"
+        print(f"   Loading config from base model: {base_model_name}")
+        config = MegatronBertConfig.from_pretrained(base_model_name, trust_remote_code=True)
+        base_model = MegatronBertModel(config=config)
+        model = BertForBinaryClassificationWithPooling(base_model)
+
+        # Load fine-tuned weights from checkpoint
+        if os.path.exists(safetensors_path):
+            print(f"   Loading weights from safetensors: {safetensors_path}")
+            from safetensors.torch import load_file
+            state_dict = load_file(safetensors_path)
+            model.load_state_dict(state_dict)
+        elif os.path.exists(pytorch_path):
+            print(f"   Loading weights from pytorch: {pytorch_path}")
+            model.load_state_dict(torch.load(pytorch_path, map_location=torch.device('cpu'), weights_only=True))
+        else:
+            raise FileNotFoundError(
+                f"No model weights found. Expected 'model.safetensors' or 'pytorch_model.bin' in {args.checkpoint_path}"
+            )
+
         model = model.to(device)
         model.eval()
         print("   Model loaded successfully!")
     except Exception as e:
         print(f"Error loading model: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
     
     # Load dataset
