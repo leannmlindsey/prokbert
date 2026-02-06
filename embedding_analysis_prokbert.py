@@ -663,89 +663,226 @@ def main():
     predictions_df.to_csv(predictions_path, index=False)
     print(f"\nSaved predictions to: {predictions_path}")
 
-    # Random baseline if requested
-    if args.include_random_baseline:
-        print("\n" + "=" * 60)
-        print("Random Baseline (Randomly Initialized Model)")
-        print("=" * 60)
-
-        # Create random model with same architecture
-        from transformers import AutoConfig, MegatronBertModel
-
-        config = AutoConfig.from_pretrained(args.model_path, trust_remote_code=True)
-        random_model = MegatronBertModel(config)
-        random_model.to(device)
-        random_model.eval()
-
-        # Extract random embeddings
-        print("Extracting random embeddings...")
-        train_random = extract_embeddings(
-            random_model, tokenizer, train_df["sequence"].tolist(), train_labels.tolist(),
-            args.batch_size, args.max_length, args.pooling, device,
-        )
-        val_random = extract_embeddings(
-            random_model, tokenizer, val_df["sequence"].tolist(), val_labels.tolist(),
-            args.batch_size, args.max_length, args.pooling, device,
-        )
-        test_random = extract_embeddings(
-            random_model, tokenizer, test_df["sequence"].tolist(), test_labels.tolist(),
-            args.batch_size, args.max_length, args.pooling, device,
-        )
-
-        # Linear probe on random
-        random_linear_metrics, _, _ = train_linear_probe(
-            train_random, train_labels,
-            val_random, val_labels,
-            test_random, test_labels,
-        )
-        results["random_baseline_linear"] = random_linear_metrics
-        print(f"\nRandom Linear Probe:")
-        print(f"  Accuracy: {random_linear_metrics['accuracy']:.4f}")
-        print(f"  F1: {random_linear_metrics['f1']:.4f}")
-        print(f"  MCC: {random_linear_metrics['mcc']:.4f}")
-
-        # 3-layer NN on random
-        random_nn_metrics, _, _ = train_three_layer_nn(
-            train_random, train_labels,
-            val_random, val_labels,
-            test_random, test_labels,
-            args.nn_hidden_dim, args.nn_epochs, args.nn_lr, device,
-        )
-        results["random_baseline_nn"] = random_nn_metrics
-        print(f"\nRandom 3-Layer NN:")
-        print(f"  Accuracy: {random_nn_metrics['accuracy']:.4f}")
-        print(f"  F1: {random_nn_metrics['f1']:.4f}")
-        print(f"  MCC: {random_nn_metrics['mcc']:.4f}")
-
-        # PCA for random
-        random_pca_path = os.path.join(args.output_dir, "pca_visualization_random.png")
-        create_pca_visualization(
-            test_random, test_labels, random_pca_path,
-            title="Random ProkBERT Embeddings PCA (Test Set)"
-        )
-
-        # Clean up
-        del random_model
-        torch.cuda.empty_cache()
-
-    # Save all results
+    # ========== SAVE PRETRAINED RESULTS IMMEDIATELY ==========
     results_path = os.path.join(args.output_dir, "embedding_analysis_results.json")
-    with open(results_path, "w") as f:
-        json.dump(results, f, indent=2)
-    print(f"\nSaved results to: {results_path}")
 
-    # Print summary
+    def save_results_json(res, path):
+        """Save results to JSON (called incrementally)."""
+        with open(path, "w") as f:
+            json.dump(res, f, indent=2)
+        print(f"Saved results to: {path}")
+
+    # Save pretrained results now (so they're preserved even if random baseline fails)
+    save_results_json(results, results_path)
+
+    # ========== RANDOM BASELINE (if requested) ==========
+    random_linear_metrics = None
+    random_nn_metrics = None
+    random_sil_score = None
+    embedding_power = {}
+
+    print(f"\nRandom baseline requested: {args.include_random_baseline}")
+
+    if args.include_random_baseline:
+        print("\n" + "#" * 60)
+        print("# RANDOM BASELINE MODEL ANALYSIS")
+        print("#" * 60)
+
+        try:
+            # Check if random embeddings already exist
+            embeddings_path_rand = os.path.join(args.output_dir, "embeddings_random.npz")
+            if os.path.exists(embeddings_path_rand):
+                print(f"\nFound existing random embeddings at: {embeddings_path_rand}")
+                print("Loading embeddings from file (delete file to re-extract)...")
+                loaded_rand = np.load(embeddings_path_rand)
+                train_random = loaded_rand["train_embeddings"]
+                val_random = loaded_rand["val_embeddings"]
+                test_random = loaded_rand["test_embeddings"]
+                print(f"Loaded random embeddings - shape: {test_random.shape}")
+            else:
+                # Create random model with same architecture
+                from transformers import AutoConfig, MegatronBertModel
+
+                config = AutoConfig.from_pretrained(args.model_path, trust_remote_code=True)
+                random_model = MegatronBertModel(config)
+                random_model.to(device)
+                random_model.eval()
+
+                # Extract random embeddings
+                print("\nExtracting train embeddings (random)...")
+                train_random = extract_embeddings(
+                    random_model, tokenizer, train_df["sequence"].tolist(), train_labels.tolist(),
+                    args.batch_size, args.max_length, args.pooling, device,
+                )
+                print("\nExtracting validation embeddings (random)...")
+                val_random = extract_embeddings(
+                    random_model, tokenizer, val_df["sequence"].tolist(), val_labels.tolist(),
+                    args.batch_size, args.max_length, args.pooling, device,
+                )
+                print("\nExtracting test embeddings (random)...")
+                test_random = extract_embeddings(
+                    random_model, tokenizer, test_df["sequence"].tolist(), test_labels.tolist(),
+                    args.batch_size, args.max_length, args.pooling, device,
+                )
+
+                # Save random embeddings
+                np.savez(
+                    embeddings_path_rand,
+                    train_embeddings=train_random,
+                    train_labels=train_labels,
+                    val_embeddings=val_random,
+                    val_labels=val_labels,
+                    test_embeddings=test_random,
+                    test_labels=test_labels,
+                )
+                print(f"\nSaved random embeddings to: {embeddings_path_rand}")
+
+                # Clean up
+                del random_model
+                torch.cuda.empty_cache()
+
+            # Linear probe on random
+            print("\n" + "-" * 40)
+            print("Training Linear Probe (Random Baseline)")
+            print("-" * 40)
+            random_linear_metrics, _, _ = train_linear_probe(
+                train_random, train_labels,
+                val_random, val_labels,
+                test_random, test_labels,
+            )
+            results["random_baseline_linear"] = random_linear_metrics
+            print(f"  Accuracy: {random_linear_metrics['accuracy']:.4f}")
+            print(f"  F1: {random_linear_metrics['f1']:.4f}")
+            print(f"  MCC: {random_linear_metrics['mcc']:.4f}")
+            print(f"  AUC: {random_linear_metrics.get('auc', 0):.4f}")
+
+            # 3-layer NN on random
+            print("\n" + "-" * 40)
+            print("Training 3-Layer Neural Network (Random Baseline)")
+            print("-" * 40)
+            random_nn_metrics, _, _ = train_three_layer_nn(
+                train_random, train_labels,
+                val_random, val_labels,
+                test_random, test_labels,
+                args.nn_hidden_dim, args.nn_epochs, args.nn_lr, device,
+            )
+            results["random_baseline_nn"] = random_nn_metrics
+            print(f"  Accuracy: {random_nn_metrics['accuracy']:.4f}")
+            print(f"  F1: {random_nn_metrics['f1']:.4f}")
+            print(f"  MCC: {random_nn_metrics['mcc']:.4f}")
+            print(f"  AUC: {random_nn_metrics.get('auc', 0):.4f}")
+
+            # Silhouette score on random
+            print("\n" + "-" * 40)
+            print("Calculating Silhouette Score (Random Baseline)")
+            print("-" * 40)
+            try:
+                random_sil_score = float(silhouette_score(test_random, test_labels))
+                results["random_silhouette_score"] = random_sil_score
+                print(f"  Silhouette Score: {random_sil_score:.4f}")
+            except Exception as e:
+                print(f"  Silhouette Score: Could not compute ({e})")
+                random_sil_score = None
+                results["random_silhouette_score"] = None
+
+            # PCA for random
+            random_pca_path = os.path.join(args.output_dir, "pca_visualization_random.png")
+            random_pc1, random_pc2 = create_pca_visualization(
+                test_random, test_labels, random_pca_path,
+                title="Random ProkBERT Embeddings PCA (Test Set)"
+            )
+            results["random_pca_variance_explained"] = {"pc1": float(random_pc1), "pc2": float(random_pc2)}
+
+            # Compute embedding power (pretrained - random)
+            print("\n" + "=" * 60)
+            print("Computing Embedding Power (Pretrained - Random)")
+            print("=" * 60)
+
+            metrics_to_compare = [
+                ("linear_probe_accuracy", linear_metrics.get("accuracy", 0), random_linear_metrics.get("accuracy", 0)),
+                ("linear_probe_f1", linear_metrics.get("f1", 0), random_linear_metrics.get("f1", 0)),
+                ("linear_probe_mcc", linear_metrics.get("mcc", 0), random_linear_metrics.get("mcc", 0)),
+                ("linear_probe_auc", linear_metrics.get("auc", 0), random_linear_metrics.get("auc", 0)),
+                ("nn_accuracy", nn_metrics.get("accuracy", 0), random_nn_metrics.get("accuracy", 0)),
+                ("nn_f1", nn_metrics.get("f1", 0), random_nn_metrics.get("f1", 0)),
+                ("nn_mcc", nn_metrics.get("mcc", 0), random_nn_metrics.get("mcc", 0)),
+                ("nn_auc", nn_metrics.get("auc", 0), random_nn_metrics.get("auc", 0)),
+                ("silhouette_score", results.get("silhouette_score", 0) or 0, random_sil_score or 0),
+            ]
+
+            for name, pre_val, rand_val in metrics_to_compare:
+                power = pre_val - rand_val
+                embedding_power[f"embedding_power_{name}"] = power
+                print(f"  {name}: {pre_val:.4f} - {rand_val:.4f} = {power:+.4f}")
+
+            results["embedding_power"] = embedding_power
+
+            # Update JSON with random results + embedding power
+            save_results_json(results, results_path)
+
+        except Exception as e:
+            print(f"\n{'!' * 60}")
+            print(f"ERROR during random baseline: {e}")
+            print(f"{'!' * 60}")
+            print("Pretrained results were already saved. Random baseline skipped.")
+            import traceback
+            traceback.print_exc()
+
+    else:
+        # Save pretrained-only results
+        save_results_json(results, results_path)
+
+    # ========== PRINT SUMMARY ==========
     elapsed = time.time() - start_time
+
     print("\n" + "=" * 60)
-    print("SUMMARY")
+    print("SUMMARY - PRETRAINED MODEL")
     print("=" * 60)
-    print(f"Model: {args.model_path}")
-    print(f"Embedding dimension: {embedding_dim}")
-    print(f"Pooling: {args.pooling}")
-    print(f"\nLinear Probe:     Acc={linear_metrics['accuracy']:.4f}, F1={linear_metrics['f1']:.4f}, MCC={linear_metrics['mcc']:.4f}, AUC={linear_metrics['auc']:.4f}")
-    print(f"3-Layer NN:       Acc={nn_metrics['accuracy']:.4f}, F1={nn_metrics['f1']:.4f}, MCC={nn_metrics['mcc']:.4f}, AUC={nn_metrics['auc']:.4f}")
-    if results.get("silhouette_score"):
-        print(f"Silhouette Score: {results['silhouette_score']:.4f}")
+    print(f"\nLinear Probe Results:")
+    print(f"  Accuracy: {linear_metrics['accuracy']:.4f}")
+    print(f"  MCC:      {linear_metrics['mcc']:.4f}")
+    print(f"  AUC:      {linear_metrics['auc']:.4f}")
+    print(f"\n3-Layer NN Results:")
+    print(f"  Accuracy: {nn_metrics['accuracy']:.4f}")
+    print(f"  MCC:      {nn_metrics['mcc']:.4f}")
+    print(f"  AUC:      {nn_metrics['auc']:.4f}")
+    print(f"\nEmbedding Quality:")
+    if results.get("silhouette_score") is not None:
+        print(f"  Silhouette Score: {results['silhouette_score']:.4f}")
+    print(f"  PCA Variance Explained: {results['pca_variance_explained']['pc1']*100:.1f}% + {results['pca_variance_explained']['pc2']*100:.1f}%")
+
+    if random_linear_metrics is not None:
+        print("\n" + "=" * 60)
+        print("SUMMARY - RANDOM BASELINE")
+        print("=" * 60)
+        print(f"\nLinear Probe Results:")
+        print(f"  Accuracy: {random_linear_metrics['accuracy']:.4f}")
+        print(f"  MCC:      {random_linear_metrics['mcc']:.4f}")
+        print(f"  AUC:      {random_linear_metrics.get('auc', 0):.4f}")
+        print(f"\n3-Layer NN Results:")
+        print(f"  Accuracy: {random_nn_metrics['accuracy']:.4f}")
+        print(f"  MCC:      {random_nn_metrics['mcc']:.4f}")
+        print(f"  AUC:      {random_nn_metrics.get('auc', 0):.4f}")
+        print(f"\nEmbedding Quality:")
+        if random_sil_score is not None:
+            print(f"  Silhouette Score: {random_sil_score:.4f}")
+        if results.get("random_pca_variance_explained"):
+            print(f"  PCA Variance Explained: {results['random_pca_variance_explained']['pc1']*100:.1f}% + {results['random_pca_variance_explained']['pc2']*100:.1f}%")
+
+        if embedding_power:
+            print("\n" + "=" * 60)
+            print("EMBEDDING POWER (Pretrained - Random)")
+            print("=" * 60)
+            print(f"\nLinear Probe:")
+            print(f"  Accuracy: {embedding_power.get('embedding_power_linear_probe_accuracy', 0):+.4f}")
+            print(f"  MCC:      {embedding_power.get('embedding_power_linear_probe_mcc', 0):+.4f}")
+            print(f"  AUC:      {embedding_power.get('embedding_power_linear_probe_auc', 0):+.4f}")
+            print(f"\n3-Layer NN:")
+            print(f"  Accuracy: {embedding_power.get('embedding_power_nn_accuracy', 0):+.4f}")
+            print(f"  MCC:      {embedding_power.get('embedding_power_nn_mcc', 0):+.4f}")
+            print(f"  AUC:      {embedding_power.get('embedding_power_nn_auc', 0):+.4f}")
+            print(f"\nSilhouette Score: {embedding_power.get('embedding_power_silhouette_score', 0):+.4f}")
+
     print(f"\nCompleted in {elapsed:.2f} seconds")
     print("=" * 60)
 
