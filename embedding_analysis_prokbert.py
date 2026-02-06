@@ -218,25 +218,32 @@ def extract_embeddings(
     pooling: str,
     device: torch.device,
 ) -> np.ndarray:
-    """Extract embeddings from ProkBERT (matching working finetuning_lambda.py approach).
+    """Extract embeddings from ProkBERT.
 
-    When the tokenizer uses shift > 1, each sequence produces multiple tokenized
-    segments (one per offset). This function averages the embeddings across offsets
-    so the output always has one embedding per input sequence.
+    When the tokenizer uses shift > 1, the tokenization pipeline produces
+    multiple offsets per sequence (for training augmentation). For embedding
+    extraction we only use offset 0 so we get one embedding per sequence.
     """
     model.eval()
 
     # Prepare DataFrame in ProkBERT format (same as finetuning script)
     df = prepare_prokbert_dataframe(sequences, labels, max_length)
 
-    # Tokenize using ProkBERT's pipeline (same as finetuning script)
+    # Tokenize using ProkBERT's pipeline
     # IMPORTANT: randomize=False to keep embeddings aligned with original label order
     print(f"  Tokenizing {len(sequences)} sequences...")
     X, y, torchdb = get_torch_data_from_segmentdb_classification(tokenizer, df, randomize=False)
 
+    # When shift > 1, the tokenizer produces multiple offsets per sequence.
+    # For embedding extraction, keep only offset 0 (one embedding per sequence).
     shift = tokenizer.tokenization_params.get('shift', 1)
-    if X.shape[0] != len(sequences):
-        print(f"  Note: shift={shift} produced {X.shape[0]} tokenized segments from {len(sequences)} sequences")
+    if shift > 1:
+        offset_mask = torchdb['offset'] == 0
+        keep_indices = torchdb[offset_mask].index.values
+        X = X[keep_indices]
+        y = y[keep_indices]
+        torchdb = torchdb[offset_mask].reset_index(drop=True)
+        print(f"  shift={shift}: kept offset 0 only ({len(keep_indices)} of {len(offset_mask)} segments)")
 
     # Create ProkBERT dataset with attention masks (same as finetuning script)
     dataset = ProkBERTTrainingDatasetPT(X, y, AddAttentionMask=True)
@@ -282,21 +289,7 @@ def extract_embeddings(
 
             all_embeddings.append(embeddings.cpu().numpy())
 
-    all_embeddings = np.vstack(all_embeddings)
-
-    # When shift > 1, aggregate embeddings back to one per sequence by averaging
-    # across offsets using the segment_id mapping from torchdb
-    if all_embeddings.shape[0] != len(sequences):
-        print(f"  Aggregating {all_embeddings.shape[0]} segment embeddings back to {len(sequences)} sequence embeddings...")
-        segment_ids = torchdb['segment_id'].values
-        unique_ids = list(dict.fromkeys(segment_ids))  # preserve order
-        aggregated = np.zeros((len(unique_ids), all_embeddings.shape[1]), dtype=all_embeddings.dtype)
-        for idx, sid in enumerate(unique_ids):
-            mask = segment_ids == sid
-            aggregated[idx] = all_embeddings[mask].mean(axis=0)
-        all_embeddings = aggregated
-
-    return all_embeddings
+    return np.vstack(all_embeddings)
 
 
 def calculate_metrics(
