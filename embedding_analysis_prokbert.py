@@ -107,8 +107,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--nn_hidden_dim",
         type=int,
-        default=256,
-        help="Hidden dimension for 3-layer NN",
+        default=None,
+        help="Hidden dimension for 3-layer NN (default: auto-derived from model embedding dim)",
     )
     parser.add_argument(
         "--nn_lr",
@@ -475,6 +475,19 @@ def main():
     # Get embedding dimension from model config
     embedding_dim = model.config.hidden_size
     print(f"  Embedding dimension: {embedding_dim}")
+    print(f"  Max position embeddings: {model.config.max_position_embeddings}")
+
+    # Auto-derive nn_hidden_dim from embedding dimension if not specified
+    if args.nn_hidden_dim is None:
+        args.nn_hidden_dim = embedding_dim
+        print(f"  Auto-set nn_hidden_dim to {args.nn_hidden_dim} (from embedding dim)")
+
+    # Warn if max_length may exceed model's capacity
+    max_pos = model.config.max_position_embeddings
+    if args.max_length > max_pos:
+        print(f"  WARNING: --max_length ({args.max_length}) exceeds model's "
+              f"max_position_embeddings ({max_pos}). Clamping to {max_pos}.")
+        args.max_length = max_pos
 
     # Extract embeddings
     # Get labels first (needed for tokenization pipeline)

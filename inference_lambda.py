@@ -287,6 +287,11 @@ def main():
     parser.add_argument('--save_metrics', action='store_true',
                         help='If labels are present, calculate and save metrics to JSON')
     
+    # Model arguments
+    parser.add_argument('--base_model', type=str, default='neuralbioinfo/prokbert-mini',
+                        help='Base model the checkpoint was fine-tuned from (default: neuralbioinfo/prokbert-mini). '
+                             'Use neuralbioinfo/prokbert-mini-c or neuralbioinfo/prokbert-mini-long for other variants.')
+
     # Processing arguments
     parser.add_argument('--batch_size', type=int, default=32,
                         help='Batch size for inference (default: 32)')
@@ -313,6 +318,7 @@ def main():
     print("PROKBERT LAMBDA INFERENCE")
     print("="*60)
     print(f"Checkpoint: {args.checkpoint_path}")
+    print(f"Base model: {args.base_model}")
     print(f"Dataset: {args.dataset_file if args.dataset_file else args.dataset}")
     print(f"Device: {device}")
     print(f"Batch size: {args.batch_size}")
@@ -327,9 +333,9 @@ def main():
         sys.exit(1)
     
     # Load tokenizer (using base model's tokenizer)
-    print("\n1. Loading tokenizer...")
+    print(f"\n1. Loading tokenizer from base model: {args.base_model}")
     _, tokenizer = get_default_pretrained_model_parameters(
-        model_name="neuralbioinfo/prokbert-mini",
+        model_name=args.base_model,
         model_class='MegatronBertModel',
         output_hidden_states=False,
         output_attentions=False,
@@ -345,7 +351,7 @@ def main():
 
         # Load config from BASE model (not checkpoint) - more reliable
         from transformers import MegatronBertConfig, MegatronBertModel
-        base_model_name = "neuralbioinfo/prokbert-mini"
+        base_model_name = args.base_model
         print(f"   Loading config from base model: {base_model_name}")
         config = MegatronBertConfig.from_pretrained(base_model_name, trust_remote_code=True)
         base_model = MegatronBertModel(config=config)
