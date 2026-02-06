@@ -402,6 +402,15 @@ def main():
         if unexpected_keys:
             print(f"   Warning: Unexpected keys: {unexpected_keys[:5]}..." if len(unexpected_keys) > 5 else f"   Warning: Unexpected keys: {unexpected_keys}")
 
+        # Validate max_length against model's max_position_embeddings
+        max_pos = config.max_position_embeddings
+        if args.max_length > max_pos:
+            print(f"   WARNING: --max_length ({args.max_length}) exceeds model's "
+                  f"max_position_embeddings ({max_pos}). Clamping to {max_pos}.")
+            args.max_length = max_pos
+        print(f"   Model max_position_embeddings: {max_pos}")
+        print(f"   Using max_length: {args.max_length}")
+
         model = model.to(device)
         model.eval()
         print("   Model loaded successfully!")
@@ -482,7 +491,9 @@ def main():
         print(f"Actual 0  {metrics['true_negatives']:5d} {metrics['false_positives']:5d}")
         print(f"       1  {metrics['false_negatives']:5d} {metrics['true_positives']:5d}")
     
-    # Save results
+    # Save results with model name subdirectory
+    base_model_short = os.path.basename(args.base_model.rstrip('/'))
+    args.output_dir = os.path.join(args.output_dir, base_model_short)
     print(f"\n7. Saving results...")
     os.makedirs(args.output_dir, exist_ok=True)
     

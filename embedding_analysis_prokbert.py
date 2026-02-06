@@ -218,7 +218,12 @@ def extract_embeddings(
     pooling: str,
     device: torch.device,
 ) -> np.ndarray:
-    """Extract embeddings from ProkBERT (matching working finetuning_lambda.py approach)."""
+    """Extract embeddings from ProkBERT (matching working finetuning_lambda.py approach).
+
+    When the tokenizer uses shift > 1, each sequence produces multiple tokenized
+    segments (one per offset). This function averages the embeddings across offsets
+    so the output always has one embedding per input sequence.
+    """
     model.eval()
 
     # Prepare DataFrame in ProkBERT format (same as finetuning script)
@@ -228,6 +233,10 @@ def extract_embeddings(
     # IMPORTANT: randomize=False to keep embeddings aligned with original label order
     print(f"  Tokenizing {len(sequences)} sequences...")
     X, y, torchdb = get_torch_data_from_segmentdb_classification(tokenizer, df, randomize=False)
+
+    shift = tokenizer.tokenization_params.get('shift', 1)
+    if X.shape[0] != len(sequences):
+        print(f"  Note: shift={shift} produced {X.shape[0]} tokenized segments from {len(sequences)} sequences")
 
     # Create ProkBERT dataset with attention masks (same as finetuning script)
     dataset = ProkBERTTrainingDatasetPT(X, y, AddAttentionMask=True)
@@ -273,7 +282,21 @@ def extract_embeddings(
 
             all_embeddings.append(embeddings.cpu().numpy())
 
-    return np.vstack(all_embeddings)
+    all_embeddings = np.vstack(all_embeddings)
+
+    # When shift > 1, aggregate embeddings back to one per sequence by averaging
+    # across offsets using the segment_id mapping from torchdb
+    if all_embeddings.shape[0] != len(sequences):
+        print(f"  Aggregating {all_embeddings.shape[0]} segment embeddings back to {len(sequences)} sequence embeddings...")
+        segment_ids = torchdb['segment_id'].values
+        unique_ids = list(dict.fromkeys(segment_ids))  # preserve order
+        aggregated = np.zeros((len(unique_ids), all_embeddings.shape[1]), dtype=all_embeddings.dtype)
+        for idx, sid in enumerate(unique_ids):
+            mask = segment_ids == sid
+            aggregated[idx] = all_embeddings[mask].mean(axis=0)
+        all_embeddings = aggregated
+
+    return all_embeddings
 
 
 def calculate_metrics(
@@ -446,6 +469,10 @@ def main():
 
     start_time = time.time()
 
+    # Append model name to output directory
+    model_short_name = os.path.basename(args.model_path.rstrip('/'))
+    args.output_dir = os.path.join(args.output_dir, model_short_name)
+
     # Create output directory
     os.makedirs(args.output_dir, exist_ok=True)
 
@@ -489,48 +516,60 @@ def main():
               f"max_position_embeddings ({max_pos}). Clamping to {max_pos}.")
         args.max_length = max_pos
 
-    # Extract embeddings
-    # Get labels first (needed for tokenization pipeline)
-    train_labels = train_df["label"].values.tolist()
-    val_labels = val_df["label"].values.tolist()
-    test_labels = test_df["label"].values.tolist()
-
-    print(f"\nExtracting embeddings (pooling={args.pooling})...")
-
-    train_embeddings = extract_embeddings(
-        model, tokenizer, train_df["sequence"].tolist(), train_labels,
-        args.batch_size, args.max_length, args.pooling, device,
-    )
-    val_embeddings = extract_embeddings(
-        model, tokenizer, val_df["sequence"].tolist(), val_labels,
-        args.batch_size, args.max_length, args.pooling, device,
-    )
-    test_embeddings = extract_embeddings(
-        model, tokenizer, test_df["sequence"].tolist(), test_labels,
-        args.batch_size, args.max_length, args.pooling, device,
-    )
-
-    # Convert labels to numpy arrays for later use
-    train_labels = np.array(train_labels)
-    val_labels = np.array(val_labels)
-    test_labels = np.array(test_labels)
-
-    print(f"  Train embeddings shape: {train_embeddings.shape}")
-    print(f"  Val embeddings shape: {val_embeddings.shape}")
-    print(f"  Test embeddings shape: {test_embeddings.shape}")
-
-    # Save embeddings
+    # Extract embeddings (or load from cache)
     embeddings_path = os.path.join(args.output_dir, "embeddings_pretrained.npz")
-    np.savez(
-        embeddings_path,
-        train_embeddings=train_embeddings,
-        train_labels=train_labels,
-        val_embeddings=val_embeddings,
-        val_labels=val_labels,
-        test_embeddings=test_embeddings,
-        test_labels=test_labels,
-    )
-    print(f"\nSaved embeddings to: {embeddings_path}")
+
+    if os.path.exists(embeddings_path):
+        print(f"\nFound cached embeddings at: {embeddings_path}")
+        cached = np.load(embeddings_path)
+        train_embeddings = cached['train_embeddings']
+        train_labels = cached['train_labels']
+        val_embeddings = cached['val_embeddings']
+        val_labels = cached['val_labels']
+        test_embeddings = cached['test_embeddings']
+        test_labels = cached['test_labels']
+        print(f"  Loaded train: {train_embeddings.shape}, val: {val_embeddings.shape}, test: {test_embeddings.shape}")
+    else:
+        # Get labels first (needed for tokenization pipeline)
+        train_labels = train_df["label"].values.tolist()
+        val_labels = val_df["label"].values.tolist()
+        test_labels = test_df["label"].values.tolist()
+
+        print(f"\nExtracting embeddings (pooling={args.pooling})...")
+
+        train_embeddings = extract_embeddings(
+            model, tokenizer, train_df["sequence"].tolist(), train_labels,
+            args.batch_size, args.max_length, args.pooling, device,
+        )
+        val_embeddings = extract_embeddings(
+            model, tokenizer, val_df["sequence"].tolist(), val_labels,
+            args.batch_size, args.max_length, args.pooling, device,
+        )
+        test_embeddings = extract_embeddings(
+            model, tokenizer, test_df["sequence"].tolist(), test_labels,
+            args.batch_size, args.max_length, args.pooling, device,
+        )
+
+        # Convert labels to numpy arrays for later use
+        train_labels = np.array(train_labels)
+        val_labels = np.array(val_labels)
+        test_labels = np.array(test_labels)
+
+        print(f"  Train embeddings shape: {train_embeddings.shape}")
+        print(f"  Val embeddings shape: {val_embeddings.shape}")
+        print(f"  Test embeddings shape: {test_embeddings.shape}")
+
+        # Save embeddings
+        np.savez(
+            embeddings_path,
+            train_embeddings=train_embeddings,
+            train_labels=train_labels,
+            val_embeddings=val_embeddings,
+            val_labels=val_labels,
+            test_embeddings=test_embeddings,
+            test_labels=test_labels,
+        )
+        print(f"\nSaved embeddings to: {embeddings_path}")
 
     # Results dictionary
     results = {
