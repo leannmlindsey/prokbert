@@ -218,7 +218,149 @@ Parameters:
 - `--output_dir`: Directory where the training logs and temporary files will be saved.
 - `--model_outputpath`: Path where the final trained model should be saved.
 
-# ProkBERT’s results
+## Running the Scripts
+
+### Available Models
+
+| Model | HuggingFace Name | k-mer | Shift | Max Position Embeddings |
+| ----- | ---------------- | ----- | ----- | ----------------------- |
+| ProkBERT-mini | `neuralbioinfo/prokbert-mini` | 6 | 1 | 1024 |
+| ProkBERT-mini-c | `neuralbioinfo/prokbert-mini-c` | 1 | 1 | 2048 |
+| ProkBERT-mini-long | `neuralbioinfo/prokbert-mini-long` | 6 | 2 | 2048 |
+
+### 1. Embedding Analysis
+
+Extracts embeddings from a ProkBERT model and evaluates them with a linear probe (logistic regression) and a 3-layer neural network. Also computes silhouette scores and PCA visualizations.
+
+**Input:** A directory containing `train.csv`, `dev.csv` (or `val.csv`), and `test.csv`. Each CSV must have `sequence` and `label` columns.
+
+**Basic usage:**
+
+```bash
+python embedding_analysis_prokbert.py \
+  --csv_dir /path/to/csv_data \
+  --model_path neuralbioinfo/prokbert-mini
+```
+
+**With a different model:**
+
+```bash
+python embedding_analysis_prokbert.py \
+  --csv_dir /path/to/csv_data \
+  --model_path neuralbioinfo/prokbert-mini-long
+```
+
+Results are saved to `./results/embedding_analysis/<model_name>/`. If embeddings have already been extracted (the `.npz` file exists in the output directory), they are loaded from cache and extraction is skipped.
+
+**All options:**
+
+| Argument | Default | Description |
+| -------- | ------- | ----------- |
+| `--csv_dir` | (required) | Directory containing train/dev/test CSV files |
+| `--model_path` | `neuralbioinfo/prokbert-mini` | HuggingFace model name or local path |
+| `--output_dir` | `./results/embedding_analysis` | Base output directory (model name appended automatically) |
+| `--batch_size` | 32 | Batch size for embedding extraction |
+| `--max_length` | 1024 | Max sequence length in base pairs (clamped to model max if exceeded) |
+| `--pooling` | `mean` | Pooling strategy: `mean`, `max`, or `cls` |
+| `--nn_epochs` | 100 | Training epochs for the 3-layer NN |
+| `--nn_hidden_dim` | auto | Hidden dim for the 3-layer NN (defaults to model embedding dim) |
+| `--nn_lr` | 0.001 | Learning rate for the 3-layer NN |
+| `--seed` | 42 | Random seed |
+| `--include_random_baseline` | off | Also evaluate a randomly initialized model as baseline |
+
+### 2. Fine-tuning
+
+Fine-tunes a ProkBERT model for binary classification. The dataset is loaded from HuggingFace. The max sequence length is automatically derived from the model config.
+
+**Basic usage:**
+
+```bash
+python finetuning_lambda.py \
+  --model_name neuralbioinfo/prokbert-mini \
+  --ftmodel my_finetuned_model \
+  --model_outputpath ./finetuning_outputs \
+  --num_train_epochs 4 \
+  --per_device_train_batch_size 128
+```
+
+**With a different model:**
+
+```bash
+python finetuning_lambda.py \
+  --model_name neuralbioinfo/prokbert-mini-c \
+  --ftmodel my_finetuned_model \
+  --model_outputpath ./finetuning_outputs \
+  --num_train_epochs 4 \
+  --per_device_train_batch_size 128
+```
+
+The fine-tuned model is saved to `<model_outputpath>/<model_name>/<ftmodel>/`.
+
+**Key arguments:**
+
+| Argument | Description |
+| -------- | ----------- |
+| `--model_name` | HuggingFace model name (e.g., `neuralbioinfo/prokbert-mini-long`) |
+| `--ftmodel` | Name for the fine-tuned model output |
+| `--model_outputpath` | Base directory for saving the fine-tuned model |
+| `--num_train_epochs` | Number of training epochs |
+| `--per_device_train_batch_size` | Batch size per GPU |
+| `--learning_rate` | Learning rate (default: 0.0005) |
+| `--output_dir` | Directory for training logs and checkpoints |
+
+### 3. Inference
+
+Runs inference on a dataset using a fine-tuned checkpoint. You must specify `--base_model` to match the model variant used during fine-tuning.
+
+**Basic usage (HuggingFace dataset):**
+
+```bash
+python inference_lambda.py \
+  --checkpoint_path ./finetuning_outputs/prokbert-mini/my_finetuned_model \
+  --base_model neuralbioinfo/prokbert-mini \
+  --dataset leannmlindsey/lambda \
+  --split test
+```
+
+**With a different model:**
+
+```bash
+python inference_lambda.py \
+  --checkpoint_path ./finetuning_outputs/prokbert-mini-c/my_finetuned_model \
+  --base_model neuralbioinfo/prokbert-mini-c \
+  --dataset leannmlindsey/lambda \
+  --split test
+```
+
+**Using a local CSV file:**
+
+```bash
+python inference_lambda.py \
+  --checkpoint_path ./finetuning_outputs/prokbert-mini/my_finetuned_model \
+  --base_model neuralbioinfo/prokbert-mini \
+  --dataset_file /path/to/test.csv
+```
+
+Results are saved to `<output_dir>/<model_name>/`.
+
+**All options:**
+
+| Argument | Default | Description |
+| -------- | ------- | ----------- |
+| `--checkpoint_path` | (required) | Path to the fine-tuned model checkpoint directory |
+| `--base_model` | `neuralbioinfo/prokbert-mini` | Base model the checkpoint was fine-tuned from |
+| `--dataset` | `leannmlindsey/lambda` | HuggingFace dataset name |
+| `--dataset_file` | none | Local CSV/TSV file (overrides `--dataset`) |
+| `--split` | `test` | Dataset split to use |
+| `--batch_size` | 32 | Batch size for inference |
+| `--max_length` | 1024 | Max sequence length (clamped to model max if exceeded) |
+| `--output_dir` | `inference_results` | Base output directory (model name appended automatically) |
+| `--output_file` | auto | Output filename |
+| `--no_labels` | off | Run without labels (prediction only) |
+| `--save_metrics` | off | Save metrics to a JSON file |
+| `--device` | auto | Force `cuda` or `cpu` |
+
+# ProkBERT's results
 ProkBERT is a novel genomic language model family designed for microbiome studies, pretrained on extensive genomic datasets from the NCBI RefSeq database. The pretraining covered a diverse range of organisms, utilizing over 206.65 billion tokens from various genomes, encompassing bacteria, viruses, archaea, and fungi. The final dataset included 976,878 unique contigs from 17,178 assemblies, representing 3,882 distinct genera. Detailed methodology and tokenization strategies are elaborated in our [paper](https://www.frontiersin.org/journals/microbiology/articles/10.3389/fmicb.2023.1331233/full).
 
 ## Genomic features
