@@ -25,8 +25,12 @@ module load CUDA/12.8 2>/dev/null || true
 conda activate prokbert 2>/dev/null || source activate prokbert 2>/dev/null || true
 export PYTHONNOUSERSITE=1
 
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-REPO_ROOT="${SCRIPT_DIR}/../.."
+# REPO_ROOT is supplied by the launcher via --export. SLURM stages this
+# script to /var/spool/slurm/... so BASH_SOURCE[0] would not resolve to the
+# real repo; never compute REPO_ROOT from the script's own location.
+if [ -z "${REPO_ROOT:-}" ]; then
+    echo "ERROR: REPO_ROOT is not set; the launcher must pass it via --export"; exit 1
+fi
 cd "${REPO_ROOT}"
 export PYTHONPATH="${PWD}:${PYTHONPATH:-}"
 

@@ -154,7 +154,7 @@ for LEN in ${SEGMENT_LENGTHS}; do
                 --output="${LOGDIR}/${JOB}_%j.out" \
                 --error="${LOGDIR}/${JOB}_%j.err" \
                 "${INF_FLAGS[@]}" \
-                --export="ALL,REPL_OUTPUT_DIR=${REPL_LEN_DIR},ARCH=${ARCH},INPUT_CSV=${CSV},OUTPUT_FILENAME=${NAME}_predictions.csv" \
+                --export="ALL,REPO_ROOT=${REPO_ROOT},REPL_OUTPUT_DIR=${REPL_LEN_DIR},ARCH=${ARCH},INPUT_CSV=${CSV},OUTPUT_FILENAME=${NAME}_predictions.csv" \
                 "${SCRIPT_DIR}/lambda_inference_job.sh"
             NUM_JOBS=$((NUM_JOBS + 1))
         done
@@ -173,7 +173,7 @@ for LEN in ${SEGMENT_LENGTHS}; do
                     --output="${LOGDIR}/${JOB}_%j.out" \
                     --error="${LOGDIR}/${JOB}_%j.err" \
                     "${INF_FLAGS[@]}" \
-                    --export="ALL,REPL_OUTPUT_DIR=${REPL_LEN_DIR},ARCH=${ARCH},INPUT_CSV=${csv},OUTPUT_FILENAME=genome_wide_${stem}_predictions.csv" \
+                    --export="ALL,REPO_ROOT=${REPO_ROOT},REPL_OUTPUT_DIR=${REPL_LEN_DIR},ARCH=${ARCH},INPUT_CSV=${csv},OUTPUT_FILENAME=genome_wide_${stem}_predictions.csv" \
                     "${SCRIPT_DIR}/lambda_inference_job.sh")
                 GW_IDS+=("${jid}")
                 NUM_JOBS=$((NUM_JOBS + 1))
@@ -189,7 +189,7 @@ for LEN in ${SEGMENT_LENGTHS}; do
                 --error="${LOGDIR}/${GA_JOB}_%j.err" \
                 "${GA_FLAGS[@]}" \
                 --dependency="${DEP}" \
-                --export="ALL,REPL_OUTPUT_DIR=${REPL_LEN_DIR},ARCH=${ARCH}" \
+                --export="ALL,REPO_ROOT=${REPO_ROOT},REPL_OUTPUT_DIR=${REPL_LEN_DIR},ARCH=${ARCH}" \
                 "${SCRIPT_DIR}/lambda_genome_analysis_job.sh"
             NUM_JOBS=$((NUM_JOBS + 1))
         fi
