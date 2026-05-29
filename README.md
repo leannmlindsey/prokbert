@@ -78,23 +78,26 @@ For running directly with Python (no SLURM) and the full flag list, see
 
 ## Path 2: Replicate the phage paper results
 
-A two-step workflow over a single config file. Submits the full pipeline:
-finetune × 3 architectures × N seeds, embedding analysis × 3 architectures,
-automatic best-model selection (by test-set MCC), inference on diagnostic
-CSVs, genome-wide inference, and a threshold + clustering sweep.
+A two-step workflow over a single config file. The pipeline loops over the
+segment lengths in the [LAMBDA_v1 dataset](#expected-lambda_v1-layout) (2k /
+4k / 8k by default) and for each length submits: finetune × 3 architectures ×
+N seeds, embedding analysis × 3 architectures, automatic best-model selection
+(by test-set MCC), inference on the matching-length diagnostic CSVs, and
+(optionally) genome-wide inference + threshold + clustering sweep.
 
 ### Step 1: Edit the config
 
 Open `configs/lambda_replication.conf` and fill in:
 
-- `LAMBDA_DIR` — directory with `train.csv`, `dev.csv` (or `val.csv`), `test.csv`
-- `OUTPUT_DIR` — where all results land
-- `DIAGNOSTIC_DATASETS` — colon-separated `name=path` entries for the diagnostic
-  CSVs (test set, GC control, FPR set, FNR set, etc.)
-- `GENOME_WIDE_CSV` — windowed CSV for the genome-wide inference + sweep
+- `LAMBDA_BASE` — root of the LAMBDA_v1 dataset (layout below)
+- `OUTPUT_DIR` — where all results land (per-length subdirectories)
+- `SEGMENT_LENGTHS` — space-separated list, default `"2k 4k 8k"`
+- (Optional) `FNR_<LEN>` per length — phage-only CSV not in LAMBDA_v1
+- (Optional) `GENOME_WIDE_<LEN>` per length — file OR directory of CSVs
 - (Optional) `ARCHS`, `SEEDS`, hyperparameters, SLURM resources
 
-The launcher refuses to submit if any `/path/to/...` placeholders remain.
+The launcher refuses to submit if `LAMBDA_BASE` or `OUTPUT_DIR` is still set to
+a `/path/to/...` placeholder.
 
 ### Step 2: Launch training
 
@@ -102,8 +105,9 @@ The launcher refuses to submit if any `/path/to/...` placeholders remain.
 bash slurm_scripts/lambda_replication/run_lambda_training.sh
 ```
 
-Submits all finetune jobs (one per `(architecture, seed)`) and all embedding
-analysis jobs (one per architecture) in parallel.
+For each segment length, submits all finetune jobs (one per
+`(architecture, seed)`) and all embedding analysis jobs (one per
+architecture) in parallel.
 
 **Wait for them to finish.** Monitor with `squeue -u $USER`.
 
@@ -113,31 +117,50 @@ analysis jobs (one per architecture) in parallel.
 bash slurm_scripts/lambda_replication/run_lambda_inference.sh
 ```
 
-On the login node, this:
+On the login node, for each segment length this:
 
 1. Reads every `test_results.json` and `embedding_analysis_results.json` under
-   `OUTPUT_DIR` and writes `winners.json` — per architecture, the candidate
-   with the highest test-set MCC across all finetune seeds + linear probe +
-   3-layer NN.
-2. Submits one inference job per `(architecture, diagnostic dataset)` and one
-   per architecture for the genome-wide CSV.
-3. Chains a threshold + clustering sweep job after each genome-wide inference
-   job via `--dependency=afterok`.
+   `<OUTPUT_DIR>/<LEN>/` and writes `winners.json` — per architecture, the
+   candidate with the highest test-set MCC across all finetune seeds + linear
+   probe + 3-layer NN.
+2. Submits one inference job per `(architecture, diagnostic dataset)`. The
+   built-in diagnostics are `test`, `fpr`, `gc_control` (auto-derived from the
+   LAMBDA_v1 layout) and optional `fnr` (from `FNR_<LEN>` if set).
+3. If `GENOME_WIDE_<LEN>` is set: submits one inference job per genome-wide
+   CSV per architecture (the variable can point to a single CSV or a
+   directory of CSVs), then chains one threshold + clustering sweep job per
+   `(length, architecture)` that depends on all the genome-wide inference
+   jobs via `--dependency=afterok`.
 
 The inference job script (`lambda_inference_job.sh`) auto-dispatches based on
 winner type — full finetune uses `inference_lambda.py`, linear probe and
 3-layer NN use `inference_embedding_head.py`.
 
+### Expected LAMBDA_v1 layout
+
+The launcher derives these paths automatically from `LAMBDA_BASE`:
+
+```
+LAMBDA_BASE/
+├── train_val_test/<LEN>/{train,val,test}.csv     used for finetune + embedding + test diagnostic
+├── fpr_test/<LEN>/bacteria_segments_<LEN>.csv    used for fpr diagnostic
+└── shuffled_controls/<LEN>/test_shuffled.csv     used for gc_control diagnostic
+```
+
+FNR and genome-wide inputs are not part of LAMBDA_v1; provide them via the
+optional `FNR_<LEN>` and `GENOME_WIDE_<LEN>` config variables.
+
 ### Output layout
 
 ```
 <OUTPUT_DIR>/
-├── finetune/<arch>/seed-<N>/         test_results.json, best_model/
-├── embedding/<arch>/                 embedding_analysis_results.json, classifiers
-├── winners.json                      picked by step 3
-├── inference/<arch>/                 <dataset>_predictions.csv (+ _metrics.json)
-├── genome_wide_analysis/<arch>/      threshold + clustering sweep CSVs
-└── logs/                             SLURM stdout/stderr per job
+├── <LEN>/                                  one subdir per SEGMENT_LENGTHS entry
+│   ├── finetune/<arch>/seed-<N>/           test_results.json, best_model/
+│   ├── embedding/<arch>/                   embedding_analysis_results.json, classifiers
+│   ├── winners.json                        picked by step 3
+│   ├── inference/<arch>/                   <dataset>_predictions.csv (+ _metrics.json)
+│   └── genome_wide_analysis/<arch>/        threshold + clustering sweep CSVs
+└── logs/                                   SLURM stdout/stderr per job (shared)
 ```
 
 ---
