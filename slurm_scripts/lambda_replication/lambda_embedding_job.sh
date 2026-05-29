@@ -9,7 +9,9 @@
 #   REPL_OUTPUT_DIR, LAMBDA_DIR, ARCH
 # Optional env:
 #   BATCH_SIZE (32), MAX_LENGTH (auto), POOLING (mean),
-#   NN_EPOCHS (100), NN_LR (0.001)
+#   NN_EPOCHS (100), NN_LR (0.001),
+#   INCLUDE_RANDOM_BASELINE (false) — pass "true" to also evaluate a
+#       randomly-initialized encoder and compute embedding power.
 
 set -euo pipefail
 
@@ -43,16 +45,23 @@ BATCH_SIZE=${BATCH_SIZE:-32}
 POOLING=${POOLING:-mean}
 NN_EPOCHS=${NN_EPOCHS:-100}
 NN_LR=${NN_LR:-0.001}
+INCLUDE_RANDOM_BASELINE=${INCLUDE_RANDOM_BASELINE:-false}
 
 # embedding_analysis_prokbert.py appends the model basename to output_dir, so we
 # point it at <repl>/embedding and it writes <repl>/embedding/<arch>/...
 OUTPUT_BASE="${REPL_OUTPUT_DIR}/embedding"
 mkdir -p "${OUTPUT_BASE}"
 
+RANDOM_BASELINE_FLAG=""
+if [ "${INCLUDE_RANDOM_BASELINE,,}" = "true" ]; then
+    RANDOM_BASELINE_FLAG="--include_random_baseline"
+fi
+
 echo "  lambda dir:  ${LAMBDA_DIR}"
 echo "  output base: ${OUTPUT_BASE}"
 echo "  pooling=${POOLING}  batch=${BATCH_SIZE}  max_length=${MAX_LENGTH}"
 echo "  nn_epochs=${NN_EPOCHS}  nn_lr=${NN_LR}"
+echo "  include_random_baseline=${INCLUDE_RANDOM_BASELINE}"
 
 python embedding_analysis_prokbert.py \
     --csv_dir="${LAMBDA_DIR}" \
@@ -61,7 +70,9 @@ python embedding_analysis_prokbert.py \
     --batch_size=${BATCH_SIZE} \
     --max_length=${MAX_LENGTH} \
     --pooling="${POOLING}" \
+    --seed=${EMB_SEED:-42} \
     --nn_epochs=${NN_EPOCHS} \
-    --nn_lr=${NN_LR}
+    --nn_lr=${NN_LR} \
+    ${RANDOM_BASELINE_FLAG}
 
 echo "Done: $(date)"

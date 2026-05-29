@@ -77,6 +77,10 @@ case "${WINNER_TYPE}" in
             ${SAVE_METRICS_FLAG}
         ;;
     linear_probe)
+        # CORRECTNESS: --pooling must match the pooling used in embedding
+        # analysis when training this classifier. Default 'mean' matches the
+        # embedding job default, but pass POOLING through so changes can't
+        # silently desync the two.
         python inference_embedding_head.py \
             --base_model="${BASE_MODEL}" \
             --head_type=linear_probe \
@@ -84,11 +88,13 @@ case "${WINNER_TYPE}" in
             --dataset_file="${INPUT_CSV}" \
             --max_length=${MAX_LENGTH} \
             --batch_size=${BATCH_SIZE} \
+            --pooling="${POOLING:-mean}" \
             --output_dir="${OUTPUT_DIR}" \
             --output_file="${OUTPUT_FILENAME}" \
             ${SAVE_METRICS_FLAG}
         ;;
     three_layer_nn)
+        # CORRECTNESS: see --pooling note in the linear_probe branch above.
         python inference_embedding_head.py \
             --base_model="${BASE_MODEL}" \
             --head_type=three_layer_nn \
@@ -97,6 +103,7 @@ case "${WINNER_TYPE}" in
             --dataset_file="${INPUT_CSV}" \
             --max_length=${MAX_LENGTH} \
             --batch_size=${BATCH_SIZE} \
+            --pooling="${POOLING:-mean}" \
             --output_dir="${OUTPUT_DIR}" \
             --output_file="${OUTPUT_FILENAME}" \
             ${SAVE_METRICS_FLAG}
