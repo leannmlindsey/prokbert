@@ -354,28 +354,31 @@ def main():
         if not os.path.isdir(args.dataset_dir):
             raise ValueError(f"Dataset directory not found: {args.dataset_dir}")
         
-        # Check for required files
+        # Check for required files. Accept val.csv as a fallback for dev.csv
+        # (LAMBDA_v1 ships val.csv; older internal datasets ship dev.csv).
         train_file = os.path.join(args.dataset_dir, "train.csv")
         test_file = os.path.join(args.dataset_dir, "test.csv")
         dev_file = os.path.join(args.dataset_dir, "dev.csv")
-        
+        if not os.path.isfile(dev_file):
+            dev_file = os.path.join(args.dataset_dir, "val.csv")
+
         missing_files = []
         if not os.path.isfile(train_file):
             missing_files.append("train.csv")
         if not os.path.isfile(test_file):
             missing_files.append("test.csv")
         if not os.path.isfile(dev_file):
-            missing_files.append("dev.csv")
-        
+            missing_files.append("dev.csv (or val.csv)")
+
         if missing_files:
             raise ValueError(f"Missing required files in {args.dataset_dir}: {', '.join(missing_files)}")
-        
+
         # Load CSV files
         print(f"  Loading train.csv...")
         train_df = pd.read_csv(train_file)
         print(f"  Loading test.csv...")
         test_df = pd.read_csv(test_file)
-        print(f"  Loading dev.csv...")
+        print(f"  Loading {os.path.basename(dev_file)}...")
         dev_df = pd.read_csv(dev_file)
         
         # Verify required columns
