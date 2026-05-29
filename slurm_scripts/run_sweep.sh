@@ -54,7 +54,7 @@ echo "============================================================"
 # Stage 1: Sweep initial threshold (no smoothing)
 echo ""
 echo "=== STAGE 1: Threshold sweep (no smoothing) ==="
-python slurm_scripts/analyze_genome_wide_results.py \
+python analyze_genome_wide_results.py \
     -d "${RESULTS_DIR}" \
     -m "${MODEL_NAME}" \
     -r "${OUTPUT_DIR}" \
@@ -64,7 +64,7 @@ python slurm_scripts/analyze_genome_wide_results.py \
 # Stage 2: Sweep merge-gap and min-cluster-size at a few thresholds
 echo ""
 echo "=== STAGE 2: Clustering parameter sweep ==="
-python slurm_scripts/analyze_genome_wide_results.py \
+python analyze_genome_wide_results.py \
     -d "${RESULTS_DIR}" \
     -m "${MODEL_NAME}" \
     -r "${OUTPUT_DIR}" \
@@ -77,7 +77,7 @@ python slurm_scripts/analyze_genome_wide_results.py \
 # Stage 3: Compare smoothing vs no smoothing at best thresholds
 echo ""
 echo "=== STAGE 3: Smoothing comparison ==="
-python slurm_scripts/analyze_genome_wide_results.py \
+python analyze_genome_wide_results.py \
     -d "${RESULTS_DIR}" \
     -m "${MODEL_NAME}" \
     -r "${OUTPUT_DIR}" \

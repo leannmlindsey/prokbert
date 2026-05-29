@@ -1,0 +1,89 @@
+# Phage paper replication config
+#
+# Used by: python replicate_phage.py --config configs/phage_replication.yaml
+#
+# Pipeline (submitted as SLURM jobs with --dependency=afterok):
+#   1. Finetune each architecture for N seeds on lambda_dataset_dir
+#   2. Embedding analysis (linear probe + 3-layer NN) on pretrained embeddings,
+#      one seed per architecture
+#   3. Select winner per architecture by test-set MCC across all
+#      (finetune × N) + linear-probe + 3-layer-NN candidates
+#   4. Run the winning model on each diagnostic dataset
+#   5. Run the winning model on the genome-wide dataset
+#   6. Threshold + clustering sweep over the genome-wide predictions
+
+# --- REQUIRED -----------------------------------------------------------------
+
+# Directory containing train.csv, dev.csv (or val.csv), test.csv for finetuning.
+# These three splits also drive the embedding analysis.
+lambda_dataset_dir: /path/to/lambda
+
+# Where everything lands. Created if it doesn't exist.
+# Layout under output_dir:
+#   finetune/<arch>/seed-<N>/    test_results.json + best_model/
+#   embedding/<arch>/            embedding_analysis_results.json + classifiers
+#   winners.json                 per-arch: {type, path, test_mcc}
+#   inference/<arch>/<dataset>_predictions.csv (+ _metrics.json)
+#   genome_wide_analysis/<arch>/ threshold + clustering sweep outputs
+#   logs/                        SLURM stdout/stderr per job
+output_dir: /path/to/output
+
+# Diagnostic test CSVs (each must have `sequence` and `label` columns).
+# Add or remove entries — the driver will run inference on every entry.
+diagnostic_datasets:
+  test:       /path/to/lambda/test.csv
+  gc_control: /path/to/gc_control.csv
+  fpr:        /path/to/fpr_set.csv
+  fnr:        /path/to/fnr_set.csv
+
+# Genome-wide inference CSV (windowed predictions for clustering sweep).
+genome_wide_dataset: /path/to/genome_wide.csv
+
+# --- OPTIONAL -----------------------------------------------------------------
+
+# Which ProkBERT architectures to replicate. All three by default.
+architectures:
+  - prokbert-mini
+  - prokbert-mini-c
+  - prokbert-mini-long
+
+# Random seeds for finetuning. Linear probe + 3-layer NN always run with seed 42.
+seeds: [1, 2, 3]
+
+# Finetune hyperparameters (passed through to finetune_prokbert_phage.py).
+finetune:
+  learning_rate: 1e-4
+  batch_size: 32
+  num_epochs: 3
+  early_stopping_patience: 3
+  fp16: true
+
+# Embedding analysis hyperparameters (passed through to embedding_analysis_prokbert.py).
+embedding:
+  pooling: mean        # mean | max | cls
+  nn_epochs: 100
+  nn_lr: 0.001
+  # nn_hidden_dim: auto-derived from model embedding dim if omitted
+
+# SLURM resources per stage. Override for unusual datasets.
+slurm:
+  partition: gpu
+  gpu: a100:1
+  finetune:
+    mem: 32g
+    time: "24:00:00"
+    cpus: 8
+  embedding:
+    mem: 64g
+    time: "4:00:00"
+    cpus: 8
+  inference:
+    mem: 32g
+    time: "2:00:00"
+    cpus: 8
+  genome_analysis:
+    mem: 16g
+    time: "2:00:00"
+    cpus: 4
+    partition: norm   # CPU-only
+    gpu: ""
