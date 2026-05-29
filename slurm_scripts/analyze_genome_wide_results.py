@@ -808,16 +808,21 @@ Examples:
 
     if has_sweep:
         from itertools import product
+        import re as _re
+
+        def parse_list(s, cast=float):
+            """Parse a comma-or-space-separated list of values."""
+            return [cast(x) for x in _re.split(r'[,\s]+', s.strip()) if x]
 
         # --- Sweep mode ---
         # For each param: if sweep provided, use those values; otherwise use the single CLI value
-        thresh_list = ([float(t.strip()) for t in args.threshold_sweep.split(',')]
+        thresh_list = (parse_list(args.threshold_sweep, float)
                        if args.threshold_sweep else [args.threshold])
-        cluster_thresh_list = ([float(t.strip()) for t in args.cluster_threshold_sweep.split(',')]
+        cluster_thresh_list = (parse_list(args.cluster_threshold_sweep, float)
                                if args.cluster_threshold_sweep else [args.cluster_threshold])
-        merge_gap_list = ([int(t.strip()) for t in args.merge_gap_sweep.split(',')]
+        merge_gap_list = (parse_list(args.merge_gap_sweep, int)
                           if args.merge_gap_sweep else [args.merge_gap])
-        min_cluster_list = ([int(t.strip()) for t in args.min_cluster_size_sweep.split(',')]
+        min_cluster_list = (parse_list(args.min_cluster_size_sweep, int)
                             if args.min_cluster_size_sweep else [args.min_cluster_size])
 
         combos = list(product(thresh_list, cluster_thresh_list, merge_gap_list, min_cluster_list))
