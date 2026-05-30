@@ -80,10 +80,18 @@ for LEN in ${SEGMENT_LENGTHS}; do
     REPL_LEN_DIR="${OUTPUT_DIR}/${LEN}"
 
     # --- select winners (login-node; reads JSON only) ---
+    # select_best_model.py SKIPs archs with no candidates (rather than
+    # aborting) so a partial training run still produces inference for the
+    # archs that did complete. The exit-1 path only triggers if NO arch has
+    # any data — for that length we skip downstream submission below.
     echo "  selecting best model per architecture..."
-    python scripts/select_best_model.py \
-        --output_dir "${REPL_LEN_DIR}" \
-        --architectures ${ARCHS}
+    if ! python scripts/select_best_model.py \
+            --output_dir "${REPL_LEN_DIR}" \
+            --architectures ${ARCHS}; then
+        echo "  SKIP length ${LEN}: no archs have completed training yet"
+        unset DIAG_NAMES DIAG_PATHS GW_CSVS 2>/dev/null
+        continue
+    fi
 
     # --- assemble diagnostic dataset list (name -> path) ---
     declare -a DIAG_NAMES DIAG_PATHS
@@ -141,8 +149,17 @@ for LEN in ${SEGMENT_LENGTHS}; do
         fi
     fi
 
+    # Read which archs actually have winners for this length.
+    WINNERS_JSON="${REPL_LEN_DIR}/winners.json"
+    HAVE_ARCHS=$(python -c "import json; print(' '.join(json.load(open('${WINNERS_JSON}')).keys()))")
+
     # --- submit jobs per architecture ---
     for ARCH in ${ARCHS}; do
+        # Skip if select_best_model.py couldn't find candidates for this arch.
+        if [[ " ${HAVE_ARCHS} " != *" ${ARCH} "* ]]; then
+            echo "    skip ${ARCH}: no winner (training incomplete?)"
+            continue
+        fi
         # Diagnostic inference
         for i in "${!DIAG_NAMES[@]}"; do
             NAME="${DIAG_NAMES[$i]}"

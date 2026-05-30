@@ -105,6 +105,7 @@ def main():
     args = parser.parse_args()
 
     winners = {}
+    skipped = []
     for arch in args.architectures:
         print(f"\n=== {arch} ===")
         finetune_dir = os.path.join(args.output_dir, "finetune", arch)
@@ -115,8 +116,15 @@ def main():
             + collect_embedding_candidates(embedding_dir)
         )
         if not candidates:
-            print(f"  ERROR: no candidates found for {arch}", file=sys.stderr)
-            sys.exit(1)
+            # Don't abort the whole selection — some archs may have completed
+            # while others (e.g. larger ones at 4k / 8k) are still pending or
+            # failed. Skip this arch; the launcher reads winners.json and
+            # only submits inference jobs for archs that made it in.
+            print(f"  SKIP: no candidates found for {arch} "
+                  f"(missing test_results.json + embedding_analysis_results.json)",
+                  file=sys.stderr)
+            skipped.append(arch)
+            continue
 
         for c in sorted(candidates, key=lambda c: c["test_mcc"], reverse=True):
             tag = f"{c['type']}" + (f"/seed-{c['seed']}" if "seed" in c else "")
@@ -134,7 +142,15 @@ def main():
     out_path = os.path.join(args.output_dir, "winners.json")
     with open(out_path, "w") as f:
         json.dump(winners, f, indent=2)
-    print(f"\nWrote {out_path}")
+    print(f"\nWrote {out_path}  ({len(winners)} arch(s) with winners"
+          f"{'; skipped: ' + ','.join(skipped) if skipped else ''})")
+
+    if not winners:
+        # Caller still gets a valid (empty) JSON and exit 1 only if nothing
+        # at all could be selected — that's a real abort case.
+        print("\nERROR: no arch produced any candidates; nothing to write.",
+              file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

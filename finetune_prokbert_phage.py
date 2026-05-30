@@ -291,6 +291,13 @@ def preprocess_function(examples, tokenizer, max_length):
         all_attention_masks = []
 
         for seq in examples["sequence"]:
+            # Truncate raw sequence to max_length BP *before* tokenization.
+            # The ProkBERT tokenizer's internal lca_tokenize_segment rejects
+            # sequences longer than ~2050 bp with ValueError, so we can't
+            # rely on the token-level truncation below — it never gets to
+            # run on long inputs.
+            if len(seq) > max_length:
+                seq = seq[:max_length]
             encoded = tokenizer.encode_plus(seq)
             input_ids = list(encoded["input_ids"])
             attention_mask = list(encoded["attention_mask"])
