@@ -102,6 +102,12 @@ def main():
                         help="Replication output directory (contains finetune/ and embedding/)")
     parser.add_argument("--architectures", nargs="+", required=True,
                         help="Architectures to select for (e.g. prokbert-mini prokbert-mini-c)")
+    parser.add_argument("--allow-partial", action="store_true",
+                        help="If set, skip architectures with no candidates rather "
+                             "than aborting. Useful for in-progress dev runs; do NOT "
+                             "use for the reviewer-facing replication pipeline — a "
+                             "missing arch there means a real training failure that "
+                             "should fail loudly.")
     args = parser.parse_args()
 
     winners = {}
@@ -116,10 +122,12 @@ def main():
             + collect_embedding_candidates(embedding_dir)
         )
         if not candidates:
-            # Don't abort the whole selection — some archs may have completed
-            # while others (e.g. larger ones at 4k / 8k) are still pending or
-            # failed. Skip this arch; the launcher reads winners.json and
-            # only submits inference jobs for archs that made it in.
+            if not args.allow_partial:
+                print(f"  ERROR: no candidates found for {arch} "
+                      f"(missing test_results.json + embedding_analysis_results.json). "
+                      f"Re-run with --allow-partial to skip and continue.",
+                      file=sys.stderr)
+                sys.exit(1)
             print(f"  SKIP: no candidates found for {arch} "
                   f"(missing test_results.json + embedding_analysis_results.json)",
                   file=sys.stderr)

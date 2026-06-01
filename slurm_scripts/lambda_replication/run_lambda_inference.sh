@@ -80,18 +80,19 @@ for LEN in ${SEGMENT_LENGTHS}; do
     REPL_LEN_DIR="${OUTPUT_DIR}/${LEN}"
 
     # --- select winners (login-node; reads JSON only) ---
-    # select_best_model.py SKIPs archs with no candidates (rather than
-    # aborting) so a partial training run still produces inference for the
-    # archs that did complete. The exit-1 path only triggers if NO arch has
-    # any data — for that length we skip downstream submission below.
+    # Default: hard-fail if any arch is missing candidates — a missing arch
+    # on the reviewer-facing pipeline means a real training failure that
+    # should surface, not be silently skipped. For in-progress dev runs set
+    # ALLOW_PARTIAL_TRAINING=true to pass --allow-partial through.
     echo "  selecting best model per architecture..."
-    if ! python scripts/select_best_model.py \
-            --output_dir "${REPL_LEN_DIR}" \
-            --architectures ${ARCHS}; then
-        echo "  SKIP length ${LEN}: no archs have completed training yet"
-        unset DIAG_NAMES DIAG_PATHS GW_CSVS 2>/dev/null
-        continue
+    ALLOW_PARTIAL_FLAG=""
+    if [ "${ALLOW_PARTIAL_TRAINING:-false}" = "true" ]; then
+        ALLOW_PARTIAL_FLAG="--allow-partial"
     fi
+    python scripts/select_best_model.py \
+        --output_dir "${REPL_LEN_DIR}" \
+        --architectures ${ARCHS} \
+        ${ALLOW_PARTIAL_FLAG}
 
     # --- assemble diagnostic dataset list (name -> path) ---
     declare -a DIAG_NAMES DIAG_PATHS
