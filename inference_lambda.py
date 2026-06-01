@@ -289,6 +289,14 @@ def main():
                         help='Run inference without labels (prediction only mode)')
     parser.add_argument('--save_metrics', action='store_true',
                         help='If labels are present, calculate and save metrics to JSON')
+    parser.add_argument('--keep_output_dir', action='store_true',
+                        help='Use --output_dir exactly as given. By default the script '
+                             'appends the base-model basename (e.g. "prokbert-mini-c") to '
+                             '--output_dir as a sub-directory, which keeps Path 1 outputs '
+                             'organized when running multiple models against one output '
+                             'dir. Pass --keep_output_dir to disable that behavior — useful '
+                             'when the caller has already organized output paths by model '
+                             '(as the lambda-replication launcher does).')
     
     # Model arguments
     parser.add_argument('--base_model', type=str, default='neuralbioinfo/prokbert-mini',
@@ -468,8 +476,9 @@ def main():
         print(f"       1  {metrics['false_negatives']:5d} {metrics['true_positives']:5d}")
     
     # Save results with model name subdirectory
-    base_model_short = os.path.basename(args.base_model.rstrip('/'))
-    args.output_dir = os.path.join(args.output_dir, base_model_short)
+    if not args.keep_output_dir:
+        base_model_short = os.path.basename(args.base_model.rstrip('/'))
+        args.output_dir = os.path.join(args.output_dir, base_model_short)
     print(f"\n7. Saving results...")
     os.makedirs(args.output_dir, exist_ok=True)
     

@@ -66,6 +66,9 @@ SAVE_METRICS_FLAG=""
 
 case "${WINNER_TYPE}" in
     finetune)
+        # --keep_output_dir: the launcher already builds per-arch output
+        # paths (<repl>/inference/<arch>/), so don't let inference_lambda.py
+        # double the arch by appending its base-model basename.
         python inference_lambda.py \
             --checkpoint_path="${WINNER_PATH}" \
             --base_model="${BASE_MODEL}" \
@@ -74,6 +77,7 @@ case "${WINNER_TYPE}" in
             --batch_size=${BATCH_SIZE} \
             --output_dir="${OUTPUT_DIR}" \
             --output_file="${OUTPUT_FILENAME}" \
+            --keep_output_dir \
             ${SAVE_METRICS_FLAG}
         ;;
     linear_probe)
