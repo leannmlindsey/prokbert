@@ -1,10 +1,8 @@
 # ProkBERT Generic Sequence Classification
 
-> **Note:** This is a fork of [nbrg-ppcu/prokbert](https://github.com/nbrg-ppcu/prokbert)
-> extended with scripts for **generic CSV-based binary classification**, suitable for
-> benchmarking ProkBERT on the [LAMBDA prophage-detection benchmark](https://github.com/leannmlindsey/LAMBDA)
-> or any other binary DNA sequence classification task. The original ProkBERT
-> documentation is preserved verbatim in [`UPSTREAM_README.md`](./UPSTREAM_README.md).
+> **Fork of [nbrg-ppcu/prokbert](https://github.com/nbrg-ppcu/prokbert)** — adds generic CSV-based binary classification scripts, used to benchmark ProkBERT on the [LAMBDA prophage-detection benchmark](https://github.com/leannmlindsey/LAMBDA).
+>
+> Original docs preserved verbatim in [`UPSTREAM_README.md`](./UPSTREAM_README.md).
 
 ---
 
@@ -62,8 +60,23 @@ unchanged in this fork; use them if you want their original training loop.
 
 ## Installation
 
-Install the upstream ProkBERT package (recommended in editable mode for local
-development of the scripts above):
+First create and activate an isolated conda environment so the install does not
+mix with your base/system Python (Python 3.11 matches the upstream container;
+the package requires >=3.10):
+
+```bash
+conda create -n prokbert python=3.11 -y
+conda activate prokbert
+```
+
+Install a CUDA-enabled PyTorch first for training on GPU:
+
+```bash
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+```
+
+Then install the upstream ProkBERT package (recommended in editable mode for
+local development of the scripts above):
 
 ```bash
 pip install git+https://github.com/nbrg-ppcu/prokbert.git
@@ -71,12 +84,6 @@ pip install git+https://github.com/nbrg-ppcu/prokbert.git
 git clone https://github.com/leannmlindsey/ProkBERT_generic_sequence_classification.git
 cd ProkBERT_generic_sequence_classification
 pip install -e .
-```
-
-Install a CUDA-enabled PyTorch first for training on GPU:
-
-```bash
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 ```
 
 Docker / Singularity images and the Bioconda package are detailed in
@@ -116,8 +123,7 @@ bash slurm_scripts/wrapper_run_batch_inference_hf.sh    # HuggingFace-hosted mod
 `INPUT_LIST` in the batch-inference wrappers is a text file with one CSV path
 per line; one SLURM job per input.
 
-For running directly with Python (no SLURM) or the full flag list for each
-script, see [Reference: script flags](#reference-script-flags).
+For the full flag list for any script, run `python <script>.py --help`.
 
 ### LAMBDA replication
 
@@ -170,92 +176,6 @@ can be a single CSV or a directory of CSVs — each becomes its own inference jo
 └── logs/                               SLURM stdout/stderr per job (shared)
 ```
 
-## Reference: script flags
-
-### `embedding_analysis_prokbert.py`
-
-| Argument | Default | Description |
-| --- | --- | --- |
-| `--csv_dir` | (required) | Directory with train/dev/test CSVs |
-| `--model_path` | `neuralbioinfo/prokbert-mini` | HuggingFace name or local path |
-| `--output_dir` | `./results/embedding_analysis` | Model name appended automatically |
-| `--batch_size` | 32 | |
-| `--max_length` | 1024 | Clamped to model max |
-| `--pooling` | `mean` | `mean` / `max` / `cls` |
-| `--nn_epochs` | 100 | 3-layer NN training epochs |
-| `--nn_hidden_dim` | auto | Defaults to model embedding dim |
-| `--nn_lr` | 0.001 | |
-| `--seed` | 42 | |
-| `--include_random_baseline` | off | Also evaluate a randomly initialized encoder |
-
-### `finetune_prokbert_phage.py`
-
-See the [hyperparameter table above](#relationship-to-the-upstream-training-code)
-for the most-tuned defaults. Other useful flags:
-
-| Argument | Default | Description |
-| --- | --- | --- |
-| `--dataset_dir` | (required) | Directory with train/dev/test CSVs |
-| `--model_name` | `neuralbioinfo/prokbert-mini` | HuggingFace name or local path |
-| `--output_dir` | `./prokbert_phage_finetuned` | |
-| `--eval_strategy` | `epoch` | `no` / `steps` / `epoch` |
-| `--save_strategy` | `epoch` | `no` / `steps` / `epoch` |
-| `--logging_steps` | 100 | |
-| `--random_init` | off | Random initialization instead of pretrained weights |
-
-### `inference_lambda.py` (local checkpoint)
-
-| Argument | Default | Description |
-| --- | --- | --- |
-| `--checkpoint_path` | (required) | Fine-tuned checkpoint dir |
-| `--base_model` | `neuralbioinfo/prokbert-mini` | Base the checkpoint was finetuned from |
-| `--dataset` | `leannmlindsey/lambda` | HuggingFace dataset name |
-| `--dataset_file` | none | Local CSV/TSV (overrides `--dataset`) |
-| `--split` | `test` | |
-| `--batch_size` | 32 | |
-| `--max_length` | 1024 | |
-| `--output_dir` | `inference_results` | |
-| `--output_file` | auto | |
-| `--no_labels` | off | Prediction-only mode |
-| `--save_metrics` | off | Write a sibling `_metrics.json` |
-| `--device` | auto | Force `cuda` or `cpu` |
-
-### `inference_hf.py` (HuggingFace-hosted model)
-
-| Argument | Default | Description |
-| --- | --- | --- |
-| `--model_name` | `neuralbioinfo/prokbert-mini-c-phage` | HuggingFace model name |
-| `--kmer` | auto | Auto-detected from model name |
-| `--shift` | auto | Auto-detected from model name |
-| `--dataset` | none | HuggingFace dataset name |
-| `--dataset_file` | none | Local CSV/TSV (overrides `--dataset`) |
-| `--split` | `test` | |
-| `--batch_size` | 32 | |
-| `--max_length` | 1024 | |
-| `--output_dir` | `inference_results` | |
-| `--output_file` | auto | |
-| `--no_labels` | off | |
-| `--save_metrics` | off | |
-| `--device` | auto | |
-
-### `inference_embedding_head.py` (LP / 3-layer NN head)
-
-| Argument | Default | Description |
-| --- | --- | --- |
-| `--base_model` | (required) | Pretrained ProkBERT (for embeddings) |
-| `--head_type` | (required) | `linear_probe` or `three_layer_nn` |
-| `--head_path` | (required) | `.pkl` (LP) or `.pt` (NN) classifier |
-| `--scaler_path` | (NN only) | Scaler `.pkl` for the NN head |
-| `--dataset_file` | (required) | Input CSV with `sequence` column |
-| `--output_dir` | `inference_results` | |
-| `--output_file` | auto | |
-| `--batch_size` | 32 | |
-| `--max_length` | 1024 | |
-| `--pooling` | `mean` | Must match the pooling used in embedding analysis |
-| `--no_labels` | off | |
-| `--save_metrics` | off | |
-| `--device` | auto | |
-
 ## Available models
 
 | Model | k-mer | Shift | Max position embeddings | HuggingFace |
@@ -281,5 +201,18 @@ If you use ProkBERT itself, cite the original paper:
   URL     = {https://www.frontiersin.org/articles/10.3389/fmicb.2023.1331233},
   DOI     = {10.3389/fmicb.2023.1331233},
   ISSN    = {1664-302X}
+}
+```
+
+If you use this fork as part of the LAMBDA prophage-detection benchmark, also
+cite the LAMBDA paper:
+
+```bibtex
+@article{LAMBDA2026,
+  author  = {Lindsey, LeAnn M. and Pershing, Nicole L. and Dufault-Thompson, Keith and Gwak, Ho-jin and Habib, Anisa and Schindler, Aaron and Rakheja, Arjun and Round, June and Stephens, W. Zac and Blaschke, Anne J. and Sundar, Hari and Jiang, Xiaofang},
+  title   = {{LAMBDA}: A Prophage Detection Benchmark for Genomic Language Models},
+  year    = {2026},
+  doi     = {10.64898/2026.03.26.714501},
+  url     = {https://doi.org/10.64898/2026.03.26.714501}
 }
 ```
