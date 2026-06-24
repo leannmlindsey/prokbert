@@ -13,9 +13,10 @@ set -euo pipefail
 echo "=== genome analysis ${ARCH} ==="
 echo "Started at: $(date)  Node: $(hostname)  Job: ${SLURM_JOB_ID:-N/A}"
 
-module load conda 2>/dev/null || true
-conda activate prokbert 2>/dev/null || source activate prokbert 2>/dev/null || true
+source /u/llindsey1/miniconda3/etc/profile.d/conda.sh
+conda activate prokbert
 export PYTHONNOUSERSITE=1
+export HF_HOME=/work/hdd/bfzj/llindsey1/hf_cache   # keep HF downloads off home quota
 
 # REPO_ROOT is supplied by the launcher via --export. SLURM stages this
 # script to /var/spool/slurm/... so BASH_SOURCE[0] would not resolve to the

@@ -59,8 +59,8 @@ done
 
 # --- common sbatch flags ------------------------------------------------------
 
-INF_FLAGS=(--partition=gpu --gres=gpu:a100:1 --mem="${INF_MEM}" --time="${INF_TIME}" --cpus-per-task=8)
-GA_FLAGS=(--partition="${GA_PARTITION}" --mem="${GA_MEM}" --time="${GA_TIME}" --cpus-per-task=4)
+INF_FLAGS=(--account="${ACCOUNT}" --partition="${GPU_PARTITION}" --gpus-per-node=1 --mem="${INF_MEM}" --time="${INF_TIME}" --cpus-per-task=8)
+GA_FLAGS=(--account="${ACCOUNT}" --partition="${GA_PARTITION}" --gpus-per-node=1 --mem="${GA_MEM}" --time="${GA_TIME}" --cpus-per-task=4)
 
 echo "============================================================"
 echo "Lambda replication — Stage 2: select winners + inference"
@@ -176,6 +176,32 @@ for LEN in ${SEGMENT_LENGTHS}; do
                 "${SCRIPT_DIR}/lambda_inference_job.sh"
             NUM_JOBS=$((NUM_JOBS + 1))
         done
+
+        # PHROG-annotated inference (optional, indirect lookup on PHROG_<LEN>).
+        # Runs the winning model on the annotated phage set; the annotation
+        # columns (phrog_category, phrog_db_category) pass through both inference
+        # paths. Output is model-prefixed so the central PHROG table can read it:
+        # <arch>_phage_annotated_segments_<LEN>_predictions.csv. With all 3 archs
+        # run, pick which becomes the canonical prokbert_* file when harvesting.
+        phrog_var="PHROG_${LEN}"
+        PHROG_PATH="${!phrog_var:-}"
+        if [ -n "${PHROG_PATH}" ]; then
+            if [ -f "${PHROG_PATH}" ]; then
+                JOB="phrog_${LEN}_${ARCH}"
+                PHROG_OUT="${ARCH}_phage_annotated_segments_${LEN}_predictions.csv"
+                echo "    submitting ${JOB}..."
+                sbatch \
+                    --job-name="${JOB}" \
+                    --output="${LOGDIR}/${JOB}_%j.out" \
+                    --error="${LOGDIR}/${JOB}_%j.err" \
+                    "${INF_FLAGS[@]}" \
+                    --export="ALL,REPO_ROOT=${REPO_ROOT},REPL_OUTPUT_DIR=${REPL_LEN_DIR},ARCH=${ARCH},INPUT_CSV=${PHROG_PATH},OUTPUT_FILENAME=${PHROG_OUT},POOLING=${POOLING}" \
+                    "${SCRIPT_DIR}/lambda_inference_job.sh"
+                NUM_JOBS=$((NUM_JOBS + 1))
+            else
+                echo "    WARNING: ${phrog_var}=${PHROG_PATH} not found — skipping PHROG for ${ARCH}"
+            fi
+        fi
 
         # Genome-wide inference (one job per CSV) + a single analysis job that
         # waits for all of them. analyze_genome_wide_results.py takes a

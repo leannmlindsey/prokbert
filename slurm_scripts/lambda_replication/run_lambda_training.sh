@@ -71,8 +71,8 @@ echo "============================================================"
 
 # --- common sbatch flags ------------------------------------------------------
 
-FT_FLAGS=(--partition=gpu --gres=gpu:a100:1 --mem="${FT_MEM}" --time="${FT_TIME}" --cpus-per-task=8)
-EMB_FLAGS=(--partition=gpu --gres=gpu:a100:1 --mem="${EMB_MEM}" --time="${EMB_TIME}" --cpus-per-task=8)
+FT_FLAGS=(--account="${ACCOUNT}" --partition="${GPU_PARTITION}" --gpus-per-node=1 --mem="${FT_MEM}" --time="${FT_TIME}" --cpus-per-task=8)
+EMB_FLAGS=(--account="${ACCOUNT}" --partition="${GPU_PARTITION}" --gpus-per-node=1 --mem="${EMB_MEM}" --time="${EMB_TIME}" --cpus-per-task=8)
 
 # REPO_ROOT is propagated to every job so they can `cd` to the real repo —
 # SLURM stages each job script to /var/spool/slurm/... where BASH_SOURCE[0]

@@ -176,6 +176,81 @@ can be a single CSV or a directory of CSVs — each becomes its own inference jo
 └── logs/                               SLURM stdout/stderr per job (shared)
 ```
 
+### Reproducing the LAMBDA results on Delta-AI (GH200)
+
+The exact recipe used for the LAMBDA paper revision on the NCSA **Delta-AI**
+cluster (GH200 / aarch64). ProkBERT is run at the **2k segment length only**
+(its models cap at 2048 tokens).
+
+**1. Conda env (verified on a GH200 node):**
+
+```bash
+conda create -y -n prokbert python=3.11
+conda activate prokbert
+conda install -y -c conda-forge pytables blosc2
+# aarch64 CUDA wheels — plain pip works, no flash-attn / TE compile needed:
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+pip install prokbert
+```
+
+Confirmed working versions: `torch 2.11.0+cu128` (`torch.cuda.is_available()`
+is `True` on a GH200 node), `transformers 5.12.1`. Smoke-test the env on a GPU
+node before launching jobs:
+
+```bash
+python - <<'PY'
+import torch, transformers, prokbert
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
+print("torch", torch.__version__, "cuda?", torch.cuda.is_available(), "| transformers", transformers.__version__)
+AutoTokenizer.from_pretrained("neuralbioinfo/prokbert-mini", trust_remote_code=True)
+AutoModelForSequenceClassification.from_pretrained("neuralbioinfo/prokbert-mini", trust_remote_code=True, num_labels=2)
+print("OK")
+PY
+```
+
+**2. Delta config** — `configs/lambda_replication.conf` is already set for Delta:
+
+| Setting | Delta value |
+|---|---|
+| `LAMBDA_BASE` | `/work/hdd/bfzj/llindsey1/LAMBDA_REPLICATION/LAMBDA_v1` |
+| `OUTPUT_DIR` | `/work/hdd/bfzj/llindsey1/LAMBDA_REPLICATION/prokbert/outputs` |
+| `SEGMENT_LENGTHS` | `2k` (ProkBERT is 2k-only) |
+| `FNR_2k` | `${LAMBDA_BASE}/fnr_test/2k/phage_segments_2k_1k.csv` (fixed-window file — **not** the PHROG-annotated set) |
+| `PHROG_2k` | `${LAMBDA_BASE}/fnr_test/2k/phage_annotated_segments_2k.csv` (annotated set for the PHROG table) |
+| `GENOME_WIDE_2k` | `${LAMBDA_BASE}/genome_wide/2k` (dir of corrected genome CSVs) |
+| `INCLUDE_RANDOM_BASELINE` | `true` (required for the embedding-power figure) |
+| `ACCOUNT` / `GPU_PARTITION` | `bfzj-dtai-gh` / `ghx4` |
+
+The job scripts under `slurm_scripts/lambda_replication/` activate the env via
+`source /u/llindsey1/miniconda3/etc/profile.d/conda.sh && conda activate prokbert`
+and set `HF_HOME=/work/hdd/bfzj/llindsey1/hf_cache` to keep model downloads off
+the home quota. GPU jobs request `--account=bfzj-dtai-gh --partition=ghx4
+--gpus-per-node=1`.
+
+**3. Run** (both scripts submit sbatch jobs — launch from the login node):
+
+```bash
+bash slurm_scripts/lambda_replication/run_lambda_training.sh   # finetune × 5 seeds + embedding × 3 archs
+squeue -u $USER                                                # wait for all to finish
+bash slurm_scripts/lambda_replication/run_lambda_inference.sh  # winners + test/fpr/fnr/gc + PHROG + genome-wide
+```
+
+The inference stage also runs each arch's winner on the **PHROG-annotated** set
+(`PHROG_2k`), writing
+`<OUTPUT_DIR>/2k/inference/<arch>/<arch>_phage_annotated_segments_2k_predictions.csv`
+with the `phrog_category` / `phrog_db_category` columns passed through. All three
+archs are produced; when harvesting, copy the chosen arch's file to the canonical
+`prokbert_phage_annotated_segments_2k_predictions.csv` that the central PHROG
+table reads.
+
+After training, confirm the random baseline actually ran (not just the flag):
+each `embedding/<arch>/` should contain `embeddings_random.npz`, and its
+`embedding_analysis_results.json` should contain the `random_baseline_linear`
+and `random_baseline_nn` blocks (MCCs well below the pretrained `linear_probe` /
+`three_layer_nn` ones) plus an `embedding_power` block (pretrained − random). If
+the `embeddings_random.npz` exists but those keys are missing, the random pass
+silently failed — re-run that embedding job.
+
 ## Available models
 
 | Model | k-mer | Shift | Max position embeddings | HuggingFace |
