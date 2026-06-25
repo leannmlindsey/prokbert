@@ -489,21 +489,24 @@ def main():
         dataset_name = args.dataset.replace('/', '_') if not args.dataset_file else os.path.basename(args.dataset_file).split('.')[0]
         output_path = os.path.join(args.output_dir, f"predictions_{dataset_name}_{checkpoint_name}.csv")
     
-    # Use segment_ids from torchdb_test which matches the processed data
-    if 'segment_id' in torchdb_test.columns:
-        segment_ids = torchdb_test['segment_id'].values[:len(predictions)]
-    elif 'segment_id' in test_df.columns:
-        segment_ids = test_df['segment_id'].values[:len(predictions)]
-    else:
-        segment_ids = [f"seq_{i}" for i in range(len(predictions))]
-    
-    # Ensure metadata_df is aligned with the predictions
-    if not metadata_df.empty and 'segment_id' in metadata_df.columns:
-        # Filter metadata to match the processed segments
-        metadata_df = metadata_df[metadata_df['segment_id'].isin(segment_ids)]
-    
-    save_results(predictions, probabilities, y_test[:len(predictions)] if not args.no_labels else None,
-                segment_ids, output_path, metadata_df)
+    # Build the predictions CSV the same way the other LAMBDA models do
+    # (DNABERT2 / GENA-LM): start from a copy of the input rows so EVERY input
+    # column is preserved — including the genome-wide coordinates (start/end)
+    # that analyze_genome_wide_results.py needs — then append the probability
+    # and prediction columns. Inference runs in input order (randomize=False,
+    # shuffle=False, drop_last=False), so row i of predictions corresponds to
+    # row i of test_df. We deliberately do NOT merge metadata back by
+    # segment_id: the ProkBERT segmenter reassigns segment_ids, so that merge
+    # silently dropped start/end and broke genome-wide analysis.
+    n = len(predictions)
+    output_df = test_df.iloc[:n].copy().reset_index(drop=True)
+    output_df['prob_class_0'] = probabilities[:, 0]
+    output_df['prob_1'] = probabilities[:, 1]
+    output_df['pred_label'] = predictions
+    if not args.no_labels:
+        output_df['correct'] = (np.asarray(predictions) == np.asarray(y_test[:n])).astype(int)
+    output_df.to_csv(output_path, index=False)
+    print(f"\nResults saved to: {output_path}")
 
     # Save metrics to JSON if requested
     if not args.no_labels and args.save_metrics:
