@@ -56,9 +56,10 @@ for LEN in ${RUN_LENGTHS}; do
 
             if [ -f "${D}/test_results.json" ]; then R=ok; else R=MISSING; fi
 
-            if [ -f "${D}/best_model/config.json" ] || \
-               [ -f "${D}/best_model/pytorch_model.bin" ] || \
-               [ -f "${D}/best_model/model.safetensors" ]; then
+            # finetune_prokbert_phage.py calls trainer.save_model() into the seed
+            # dir itself (no best_model/ subdir): config.json + weights land here.
+            if [ -f "${D}/config.json" ] && \
+               { [ -f "${D}/model.safetensors" ] || [ -f "${D}/pytorch_model.bin" ]; }; then
                 M=ok
             else
                 M=MISSING

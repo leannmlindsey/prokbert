@@ -500,7 +500,7 @@ def main():
         greater_is_better=True if args.metric_for_best_model in ["eval_mcc", "eval_accuracy", "eval_f1", "eval_auc"] else False,
         save_total_limit=args.save_total_limit,
         seed=args.seed,
-        report_to=["tensorboard"],
+        report_to="none",  # no tensorboard dep for headless SLURM runs; metrics come from test_results.json
         logging_dir=os.path.join(args.output_dir, "logs"),
         push_to_hub=False,
     )
