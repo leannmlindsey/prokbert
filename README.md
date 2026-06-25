@@ -190,17 +190,28 @@ conda activate prokbert
 conda install -y -c conda-forge pytables blosc2
 # aarch64 CUDA wheels — plain pip works, no flash-attn / TE compile needed:
 pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
-pip install prokbert
+# Install the FORK in editable mode (NOT `pip install prokbert`): the
+# pipeline scripts pull in matplotlib / seaborn / tqdm / scikit-learn /
+# datasets, which only the fork's pyproject.toml declares.
+git clone https://github.com/leannmlindsey/ProkBERT_generic_sequence_classification.git
+cd ProkBERT_generic_sequence_classification
+pip install -e .
 ```
 
 Confirmed working versions: `torch 2.11.0+cu128` (`torch.cuda.is_available()`
-is `True` on a GH200 node), `transformers 5.12.1`. Smoke-test the env on a GPU
-node before launching jobs:
+is `True` on a GH200 node), `transformers` **4.x (must be < 5)**. transformers
+5.x removed the private tokenizer helpers (`_is_control` / `_is_punctuation` /
+`_is_whitespace`) that ProkBERT's vendored tokenizer imports, so finetuning
+fails at import on 5.x; the `<5` pin in `pyproject.toml` prevents this. Smoke-test
+the env on a GPU node before launching jobs:
 
 ```bash
 python - <<'PY'
 import torch, transformers, prokbert
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
+# This import is what breaks on transformers 5.x — test it explicitly:
+from prokbert.prokbert_tokenizer import ProkBERTTokenizer
+import matplotlib, seaborn, sklearn, datasets, tqdm   # pipeline deps
 print("torch", torch.__version__, "cuda?", torch.cuda.is_available(), "| transformers", transformers.__version__)
 AutoTokenizer.from_pretrained("neuralbioinfo/prokbert-mini", trust_remote_code=True)
 AutoModelForSequenceClassification.from_pretrained("neuralbioinfo/prokbert-mini", trust_remote_code=True, num_labels=2)
@@ -213,7 +224,7 @@ PY
 | Setting | Delta value |
 |---|---|
 | `LAMBDA_BASE` | `/work/hdd/bfzj/llindsey1/LAMBDA_REPLICATION/LAMBDA_v1` |
-| `OUTPUT_DIR` | `/work/hdd/bfzj/llindsey1/LAMBDA_REPLICATION/prokbert/outputs` |
+| `OUTPUT_DIR` | `/work/hdd/bfzj/llindsey1/LAMBDA_REPLICATION/ProkBERT_generic_sequence_classification/outputs` (inside the repo; `outputs/` is gitignored) |
 | `SEGMENT_LENGTHS` | `2k` (ProkBERT is 2k-only) |
 | `FNR_2k` | `${LAMBDA_BASE}/fnr_test/2k/phage_segments_2k_1k.csv` (fixed-window file — **not** the PHROG-annotated set) |
 | `PHROG_2k` | `${LAMBDA_BASE}/fnr_test/2k/phage_annotated_segments_2k.csv` (annotated set for the PHROG table) |

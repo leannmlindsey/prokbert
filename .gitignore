@@ -113,3 +113,6 @@ target/
 .ipynb_checkpoints
 
 src/prokbert/dev_notebooks/dev_tokenizer.ipynb
+
+# LAMBDA replication outputs (checkpoints, predictions, logs)
+outputs/
