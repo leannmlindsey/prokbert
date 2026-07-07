@@ -6,6 +6,13 @@
 
 ---
 
+## Explore the Results
+
+See how ProkBERT performs on the full LAMBDA genome-wide evaluation set, and compare it
+interactively against every other benchmarked model, on the LAMBDA benchmark dashboard:
+
+[https://leannmlindsey.github.io/lambda-benchmark/](https://leannmlindsey.github.io/lambda-benchmark/)
+
 ## Relationship to the upstream training code
 
 The fine-tune script in this fork (`finetune_prokbert_phage.py`) is a thin
