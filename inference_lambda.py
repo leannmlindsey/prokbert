@@ -410,7 +410,21 @@ def main():
     [X_test, y_test, torchdb_test] = get_torch_data_from_segmentdb_classification(
         tokenizer, test_df, L=max_tokens, randomize=False
     )
-    
+
+    # When the tokenizer uses shift > 1 (e.g. prokbert-mini-long), tokenization
+    # produces multiple offsets per sequence, so X_test/predictions come out 2x the
+    # number of input rows. Keep only offset 0 so predictions align 1:1 with test_df
+    # (identical fix to embedding_analysis_prokbert.py; no-op for shift=1 archs).
+    shift = tokenizer.tokenization_params.get('shift', 1)
+    if shift > 1:
+        offset_mask = torchdb_test['offset'] == 0
+        keep_indices = torchdb_test[offset_mask].index.values
+        X_test = X_test[keep_indices]
+        y_test = y_test[keep_indices]
+        torchdb_test = torchdb_test[offset_mask].reset_index(drop=True)
+        print(f"   shift={shift}: kept offset 0 only ({len(keep_indices)} of "
+              f"{len(offset_mask)} tokenized segments)")
+
     # Debug: Check dimensions and ensure consistency
     print(f"   X_test shape: {X_test.shape}")
     print(f"   y_test shape: {y_test.shape}")
